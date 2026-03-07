@@ -229,9 +229,9 @@ class Vine(Obstacle):
     BW = 14
     BH = 65
 
-    def __init__(self, level):
+    def __init__(self, level, spawn_x=None):
         super().__init__()
-        self.x        = float(random.randint(50, W - 50))
+        self.x        = float(spawn_x if spawn_x is not None else random.randint(50, W - 50))
         self.y        = float(-self.BH)
         mult          = 1 + (level - 1) * SPEED_SCALE * 0.8
         self.vy       = (90 + level * 15) * mult
@@ -286,9 +286,9 @@ class Vine(Obstacle):
 class Bomb(Obstacle):
     R = 18
 
-    def __init__(self, level):
+    def __init__(self, level, spawn_x=None):
         super().__init__()
-        self.x             = float(random.randint(60, W - 60))
+        self.x             = float(spawn_x if spawn_x is not None else random.randint(60, W - 60))
         self.y             = float(-self.R * 2)
         mult               = 1 + (level - 1) * SPEED_SCALE * 1.1
         self.vy            = (175 + level * 22) * mult
@@ -363,9 +363,9 @@ class Spike(Obstacle):
     SW = 18
     SH = 44
 
-    def __init__(self, level):
+    def __init__(self, level, spawn_x=None):
         super().__init__()
-        self.x  = float(random.randint(40, W - 40))
+        self.x  = float(spawn_x if spawn_x is not None else random.randint(40, W - 40))
         self.y  = float(-self.SH)
         mult    = 1 + (level - 1) * SPEED_SCALE * 1.3
         self.vy = (260 + level * 38) * mult
@@ -402,9 +402,9 @@ class Spike(Obstacle):
 class Boulder(Obstacle):
     R = 30
 
-    def __init__(self, level):
+    def __init__(self, level, spawn_x=None):
         super().__init__()
-        self.x        = float(random.randint(80, W - 80))
+        self.x        = float(spawn_x if spawn_x is not None else random.randint(80, W - 80))
         self.y        = float(-self.R * 2)
         mult          = 1 + (level - 1) * SPEED_SCALE * 0.7
         self.vy       = (100 + level * 12) * mult
@@ -582,10 +582,22 @@ class Game:
         return bg
 
     # ── Spawning ─────────────────────────────────────────────────────────────
+    def _spawn_x_near_player(self, margin):
+        """Return an x biased toward the player; radius tightens each level."""
+        radius = max(90, 380 - (self.level - 1) * 28)   # level 1=380, level 10=128, floor 90
+        px = int(self.player.x)
+        lo = max(margin, px - radius)
+        hi = min(W - margin, px + radius)
+        if lo >= hi:
+            lo, hi = margin, W - margin
+        return random.randint(lo, hi)
+
     def _spawn(self):
         kind = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
         cls  = {"vine": Vine, "bomb": Bomb, "spike": Spike, "boulder": Boulder}[kind]
-        self.obstacles.append(cls(self.level))
+        margins = {"vine": 50, "bomb": 60, "spike": 40, "boulder": 80}
+        sx = self._spawn_x_near_player(margins[kind])
+        self.obstacles.append(cls(self.level, spawn_x=sx))
 
     def _pop(self, x, y, text, color):
         self.particles.append({
@@ -765,7 +777,7 @@ class Game:
         screen.blit(ov, (0, 0))
         pt  = F_LARGE.render("PAUSED", True, CLR["white"])
         h1  = F_MED.render("SPACE — resume", True, (195, 215, 195))
-        h2  = F_MED.render("ESC — quit game", True, (195, 215, 195))
+        h2  = F_MED.render("ESC — return to home screen", True, (195, 215, 195))
         screen.blit(pt,  (W // 2 - pt.get_width()  // 2, H // 2 - 60))
         screen.blit(h1,  (W // 2 - h1.get_width()  // 2, H // 2 + 10))
         screen.blit(h2,  (W // 2 - h2.get_width()  // 2, H // 2 + 50))
@@ -788,14 +800,28 @@ class Game:
         prompt = F_MED.render("Enter your name (up to 5 characters):", True, (195, 215, 195))
         screen.blit(prompt, (W // 2 - prompt.get_width() // 2, 174))
 
-        # Input box
-        bw, bh = 320, 60
+        # Input box — wide enough to never overflow 5 chars + cursor
+        bw, bh = 420, 64
         bx = W // 2 - bw // 2
-        by = 214
+        by = 210
         draw_panel(screen, bx, by, bw, bh, CLR["lb_bg"], alpha=230)
-        display = self.name_input + ("|" if self.cursor_on else " ")
-        inp = F_LARGE.render(display, True, CLR["gold"])
-        screen.blit(inp, (W // 2 - inp.get_width() // 2, by + 8))
+
+        # Render each letter as a fixed-width slot for clean alignment
+        slot_w = 60
+        total_w = MAX_NAME_LEN * slot_w
+        sx_start = W // 2 - total_w // 2
+        for i in range(MAX_NAME_LEN):
+            sx = sx_start + i * slot_w
+            # Slot underline
+            pygame.draw.line(screen, CLR["vine_dk"], (sx + 4, by + bh - 10), (sx + slot_w - 8, by + bh - 10), 2)
+            if i < len(self.name_input):
+                ch_surf = F_LARGE.render(self.name_input[i], True, CLR["gold"])
+                screen.blit(ch_surf, (sx + slot_w // 2 - ch_surf.get_width() // 2, by + 8))
+            elif i == len(self.name_input) and self.cursor_on:
+                # Blinking cursor in current slot
+                pygame.draw.rect(screen, CLR["gold"],
+                                 (sx + slot_w // 2 - 2, by + 12, 4, 36))
+
         cnt = F_TINY.render(f"{len(self.name_input)}/{MAX_NAME_LEN}", True, (130, 160, 130))
         screen.blit(cnt, (bx + bw - cnt.get_width() - 8, by + bh + 4))
 
@@ -959,6 +985,10 @@ class Game:
         cta = F_LARGE.render(">> PRESS SPACE TO START <<", True, pulse_color(CLR["gold"], t))
         screen.blit(cta, (W // 2 - cta.get_width() // 2, H - 70))
 
+        # Quit hint
+        q_hint = F_TINY.render("Q — quit", True, (90, 110, 90))
+        screen.blit(q_hint, (W - q_hint.get_width() - 12, H - 22))
+
     # ── Event handling ───────────────────────────────────────────────────────
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN:
@@ -981,15 +1011,22 @@ class Game:
                     self.name_input += ch
             return
 
-        # ── ESC ───────────────────────────────────────────────────────────────
+        # ── ESC — always navigate toward home, never force-quit ───────────────
         if event.key == pygame.K_ESCAPE:
             if self.state == ST_PLAYING:
-                self.state = ST_PAUSED        # ESC during play → pause (CRIT-04)
+                self.state = ST_PAUSED            # playing   → pause
             elif self.state == ST_PAUSED:
-                pygame.quit(); sys.exit()     # ESC again → quit
+                self._new_game()
+                self.state = ST_START             # paused    → home
+            elif self.state == ST_START:
+                pass                              # home      → nothing (use Q to quit)
             else:
-                pygame.quit(); sys.exit()
+                self.state = ST_START             # anywhere  → home
             return
+
+        # ── Q — quit from start screen only ──────────────────────────────────
+        if event.key == pygame.K_q and self.state == ST_START:
+            pygame.quit(); sys.exit()
 
         # ── SPACE ─────────────────────────────────────────────────────────────
         if event.key == pygame.K_SPACE:
