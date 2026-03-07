@@ -18,11 +18,22 @@ W, H   = 3840, 2160
 SX     = W / 900          # horizontal scale  (≈ 4.267)
 SY     = H / 600          # vertical scale    (= 3.6)
 S      = SY               # uniform size scale (use vertical as reference)
+_fullscreen = True
 screen = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
 pygame.display.set_caption("Jungle Dodge")
 pygame.mouse.set_visible(False)
 clock  = pygame.time.Clock()
 FPS    = 60
+
+def _toggle_fullscreen():
+    global _fullscreen, screen
+    _fullscreen = not _fullscreen
+    if _fullscreen:
+        screen = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
+        pygame.mouse.set_visible(False)
+    else:
+        screen = pygame.display.set_mode((1280, 720), pygame.SCALED)
+        pygame.mouse.set_visible(True)
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 GROUND_Y     = H - int(90 * S)   # 2160 - 324 = 1836
@@ -1292,7 +1303,7 @@ class Game:
 
         # ── F11 — toggle fullscreen / windowed ───────────────────────────────
         if event.key == pygame.K_F11:
-            pygame.display.toggle_fullscreen()
+            _toggle_fullscreen()
             return
 
         # ── ESC — always navigate toward home, never force-quit ───────────────
