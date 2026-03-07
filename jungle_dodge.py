@@ -15,8 +15,9 @@ pygame.font.init()
 
 # ── Window ────────────────────────────────────────────────────────────────────
 W, H   = 900, 600
-screen = pygame.display.set_mode((W, H))
+screen = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
 pygame.display.set_caption("Jungle Dodge")
+pygame.mouse.set_visible(False)
 clock  = pygame.time.Clock()
 FPS    = 60
 
@@ -1205,6 +1206,11 @@ class Game:
                 ch = event.unicode.upper()
                 if ch.isalnum() and len(self.name_input) < MAX_NAME_LEN:
                     self.name_input += ch
+            return
+
+        # ── F11 — toggle fullscreen / windowed ───────────────────────────────
+        if event.key == pygame.K_F11:
+            pygame.display.toggle_fullscreen()
             return
 
         # ── ESC — always navigate toward home, never force-quit ───────────────
