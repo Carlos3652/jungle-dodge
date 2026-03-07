@@ -19,21 +19,31 @@ SX     = W / 900          # horizontal scale  (≈ 4.267)
 SY     = H / 600          # vertical scale    (= 3.6)
 S      = SY               # uniform size scale (use vertical as reference)
 _fullscreen = True
-screen = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
+_display = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
+screen   = pygame.Surface((W, H))   # all game drawing targets this surface
 pygame.display.set_caption("Jungle Dodge")
 pygame.mouse.set_visible(False)
 clock  = pygame.time.Clock()
 FPS    = 60
 
 def _toggle_fullscreen():
-    global _fullscreen, screen
+    global _fullscreen, _display
     _fullscreen = not _fullscreen
     if _fullscreen:
-        screen = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
+        _display = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
         pygame.mouse.set_visible(False)
     else:
-        screen = pygame.display.set_mode((1280, 720), pygame.SCALED)
+        _display = pygame.display.set_mode((1280, 720))
         pygame.mouse.set_visible(True)
+
+def _present():
+    """Scale internal render surface to actual display and flip."""
+    dw, dh = _display.get_size()
+    if (dw, dh) == (W, H):
+        _display.blit(screen, (0, 0))
+    else:
+        pygame.transform.scale(screen, (dw, dh), _display)
+    pygame.display.flip()
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 GROUND_Y     = H - int(90 * S)   # 2160 - 324 = 1836
@@ -894,7 +904,7 @@ class Game:
             self._draw_leaderboard(t)
         elif self.state == ST_GAMEOVER:
             self._draw_gameover(t)
-        pygame.display.flip()
+        _present()
 
     # ── Game screen ──────────────────────────────────────────────────────────
     def _draw_game(self):
