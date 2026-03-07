@@ -727,81 +727,85 @@ class Game:
             screen.blit(txt, (int(p["x"]) - txt.get_width() // 2, int(p["y"])))
         self._draw_hud()
 
-    # ── HUD — Stone Tablet (Variant A) ───────────────────────────────────────
+    # ── HUD — Stone Tablet (bottom, Variant A) ───────────────────────────────
     def _draw_hud(self):
-        ph = 70
+        ph  = 72          # panel height
+        py  = H - ph      # panel top y  (= 528)
+
         # Stone panel
         panel = pygame.Surface((W, ph), pygame.SRCALPHA)
-        panel.fill((*CLR["stone"], 235))
-        screen.blit(panel, (0, 0))
+        panel.fill((*CLR["stone"], 238))
+        screen.blit(panel, (0, py))
         # Carved stone texture: subtle horizontal lines
-        for ty in range(12, ph, 12):
+        for ty in range(py + 10, H, 10):
             pygame.draw.line(screen, CLR["stone_hi"], (0, ty), (W, ty), 1)
-        # Panel border
-        pygame.draw.line(screen, CLR["vine"],    (0, ph),     (W, ph),     2)
-        pygame.draw.line(screen, CLR["vine_dk"], (0, ph + 2), (W, ph + 2), 1)
+        # Top border (vine double line)
+        pygame.draw.line(screen, CLR["vine"],    (0, py),     (W, py),     2)
+        pygame.draw.line(screen, CLR["vine_dk"], (0, py + 2), (W, py + 2), 1)
 
         # ── SCORE (left) ──────────────────────────────────────────────────────
         sc_lbl = F_TINY.render("SCORE", True, CLR["olive"])
-        screen.blit(sc_lbl, (14, 7))
+        screen.blit(sc_lbl, (14, py + 6))
         sc_shad = F_SERIF.render(str(self.score), True, (18, 18, 12))
         sc_val  = F_SERIF.render(str(self.score), True, CLR["gold"])
-        screen.blit(sc_shad, (15, 31))
-        screen.blit(sc_val,  (14, 30))
+        screen.blit(sc_shad, (15, py + 28))
+        screen.blit(sc_val,  (14, py + 27))
 
-        # ── LEVEL (center) ────────────────────────────────────────────────────
+        # ── LEVEL (center-left) ───────────────────────────────────────────────
         lv_lbl = F_TINY.render("LEVEL", True, CLR["olive"])
-        screen.blit(lv_lbl, (W // 2 - lv_lbl.get_width() // 2, 7))
+        screen.blit(lv_lbl, (W // 2 - lv_lbl.get_width() // 2 - 60, py + 6))
         lv_shad = F_SERIF.render(str(self.level), True, (18, 18, 12))
         lv_val  = F_SERIF.render(str(self.level), True, CLR["white"])
-        screen.blit(lv_shad, (W // 2 - lv_val.get_width() // 2 + 1, 31))
-        screen.blit(lv_val,  (W // 2 - lv_val.get_width() // 2,     30))
+        lv_x = W // 2 - lv_val.get_width() // 2 - 60
+        screen.blit(lv_shad, (lv_x + 1, py + 28))
+        screen.blit(lv_val,  (lv_x,     py + 27))
 
-        # ── TIME (right of center) ────────────────────────────────────────────
+        # ── TIME (center-right) ───────────────────────────────────────────────
         time_left = max(0.0, LEVEL_TIME - self.level_timer)
         tcol = CLR["red"] if time_left < 10 else CLR["white"]
         tm_lbl  = F_TINY.render("TIME", True, CLR["olive"])
-        screen.blit(tm_lbl, (W // 2 + 90, 7))
+        screen.blit(tm_lbl, (W // 2 + 40, py + 6))
         tm_shad = F_SERIF.render(f"{int(time_left):02d}s", True, (18, 18, 12))
         tm_val  = F_SERIF.render(f"{int(time_left):02d}s", True, tcol)
-        screen.blit(tm_shad, (W // 2 + 91, 31))
-        screen.blit(tm_val,  (W // 2 + 90, 30))
+        screen.blit(tm_shad, (W // 2 + 41, py + 28))
+        screen.blit(tm_val,  (W // 2 + 40, py + 27))
 
         # ── LIVES — skull icons (right) ───────────────────────────────────────
         lv2_lbl = F_TINY.render("LIVES", True, CLR["olive"])
-        screen.blit(lv2_lbl, (W - 120, 7))
+        screen.blit(lv2_lbl, (W - 122, py + 6))
         for i in range(MAX_LIVES):
             sk_col = (190, 30, 30) if i < self.player.lives else (55, 55, 55)
             sk = F_SKULL.render("\u2620", True, sk_col)   # ☠
-            screen.blit(sk, (W - 118 + i * 36, 28))
+            screen.blit(sk, (W - 120 + i * 36, py + 26))
 
-        # ── Vine growth bar / stun bar (bottom strip) ─────────────────────────
-        bar_w = int(W * 0.55)
+        # ── Vine growth bar / stun bar (bottom strip inside panel) ────────────
+        bar_w = int(W * 0.60)
         bar_x = W // 2 - bar_w // 2
+        bar_y = H - 12
 
         if self.player.is_stunned():
             stun_pct   = max(0.0, self.player.stun_t / STUN_SECS)
             stun_bar_w = int(bar_w * stun_pct)
-            pygame.draw.rect(screen, (20, 60, 55),  (bar_x, H - 14, bar_w, 10), border_radius=4)
-            pygame.draw.rect(screen, CLR["teal"],   (bar_x, H - 14, stun_bar_w, 10), border_radius=4)
-            pygame.draw.rect(screen, (0, 140, 120), (bar_x, H - 14, bar_w, 10), 1, border_radius=4)
-            st = F_SMALL.render("STUNNED", True, CLR["teal"])
-            screen.blit(st, (W // 2 - st.get_width() // 2, H - 36))
+            pygame.draw.rect(screen, (20, 60, 55),  (bar_x, bar_y, bar_w, 8), border_radius=4)
+            pygame.draw.rect(screen, CLR["teal"],   (bar_x, bar_y, stun_bar_w, 8), border_radius=4)
+            pygame.draw.rect(screen, (0, 140, 120), (bar_x, bar_y, bar_w, 8), 1, border_radius=4)
+            # STUNNED label sits above the bar, inside the panel
+            st = F_TINY.render("STUNNED", True, CLR["teal"])
+            screen.blit(st, (W // 2 - st.get_width() // 2, bar_y - 16))
         else:
             prog   = min(1.0, self.level_timer / LEVEL_TIME)
             fill_w = int(bar_w * prog)
             seg_w  = 18
-            pygame.draw.rect(screen, (18, 32, 18), (bar_x, H - 14, bar_w, 10), border_radius=4)
+            pygame.draw.rect(screen, (18, 32, 18), (bar_x, bar_y, bar_w, 8), border_radius=4)
             for sx in range(0, fill_w, seg_w):
                 seg = min(seg_w - 1, fill_w - sx)
                 col = CLR["vine"] if (sx // seg_w) % 2 == 0 else CLR["vine_dk"]
-                pygame.draw.rect(screen, col, (bar_x + sx, H - 14, seg, 10))
-            # Leaf tip at fill edge
+                pygame.draw.rect(screen, col, (bar_x + sx, bar_y, seg, 8))
             if fill_w > 6:
                 lx = bar_x + fill_w
                 pygame.draw.polygon(screen, (80, 255, 110),
-                                    [(lx - 5, H - 14), (lx + 5, H - 9), (lx - 5, H - 4)])
-            pygame.draw.rect(screen, CLR["vine_dk"], (bar_x, H - 14, bar_w, 10), 1, border_radius=4)
+                                    [(lx - 4, bar_y), (lx + 4, bar_y + 4), (lx - 4, bar_y + 8)])
+            pygame.draw.rect(screen, CLR["vine_dk"], (bar_x, bar_y, bar_w, 8), 1, border_radius=4)
 
     # ── Level-up overlay ─────────────────────────────────────────────────────
     def _draw_levelup_overlay(self):
@@ -829,53 +833,65 @@ class Game:
 
     # ── Name Entry ───────────────────────────────────────────────────────────
     def _draw_name_entry(self, t):
-        screen.blit(self.bg, (0, 0))
+        # Full clean slate — no game elements bleeding through
+        screen.fill(CLR["black"])
         ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((0, 20, 0, 160))
+        ov.fill((0, 12, 0, 255))
         screen.blit(ov, (0, 0))
 
-        trop  = F_LARGE.render("YOU MADE THE TOP 10!", True, CLR["gold"])
-        shad  = F_LARGE.render("YOU MADE THE TOP 10!", True, (60, 40, 0))
-        screen.blit(shad, (W // 2 - trop.get_width() // 2 + 3, 48))
-        screen.blit(trop, (W // 2 - trop.get_width() // 2, 45))
+        # Gold vine dividers for structure
+        pygame.draw.line(screen, CLR["vine_dk"], (W // 2 - 320, H // 2 - 120),
+                         (W // 2 + 320, H // 2 - 120), 1)
+        pygame.draw.line(screen, CLR["vine_dk"], (W // 2 - 320, H // 2 + 130),
+                         (W // 2 + 320, H // 2 + 130), 1)
 
-        sc = F_MED.render(f"Score: {self.score}   |   Level {self.level}", True, CLR["white"])
-        screen.blit(sc, (W // 2 - sc.get_width() // 2, 116))
+        # ── Title ────────────────────────────────────────────────────────────
+        trop = F_LARGE.render("YOU MADE THE TOP 10!", True, CLR["gold"])
+        shad = F_LARGE.render("YOU MADE THE TOP 10!", True, (50, 30, 0))
+        screen.blit(shad, (W // 2 - trop.get_width() // 2 + 3, H // 2 - 200 + 3))
+        screen.blit(trop, (W // 2 - trop.get_width() // 2,     H // 2 - 200))
 
-        prompt = F_MED.render("Enter your name (up to 5 characters):", True, (195, 215, 195))
-        screen.blit(prompt, (W // 2 - prompt.get_width() // 2, 174))
+        # ── Score / level ─────────────────────────────────────────────────────
+        sc = F_SMALL.render(f"Score: {self.score}   |   Level {self.level}", True, (200, 220, 200))
+        screen.blit(sc, (W // 2 - sc.get_width() // 2, H // 2 - 148))
 
-        # Input box — wide enough to never overflow 5 chars + cursor
-        bw, bh = 420, 64
-        bx = W // 2 - bw // 2
-        by = 210
-        draw_panel(screen, bx, by, bw, bh, CLR["lb_bg"], alpha=230)
+        # ── Input prompt ──────────────────────────────────────────────────────
+        prompt = F_MED.render("Enter your name:", True, (190, 210, 190))
+        screen.blit(prompt, (W // 2 - prompt.get_width() // 2, H // 2 - 105))
 
-        # Render each letter as a fixed-width slot for clean alignment
-        slot_w = 60
-        total_w = MAX_NAME_LEN * slot_w
+        # ── Letter slots ──────────────────────────────────────────────────────
+        slot_w   = 72
+        slot_h   = 80
+        total_w  = MAX_NAME_LEN * slot_w + (MAX_NAME_LEN - 1) * 10
         sx_start = W // 2 - total_w // 2
+        sy       = H // 2 - 72
+
         for i in range(MAX_NAME_LEN):
-            sx = sx_start + i * slot_w
-            # Slot underline
-            pygame.draw.line(screen, CLR["vine_dk"], (sx + 4, by + bh - 10), (sx + slot_w - 8, by + bh - 10), 2)
-            if i < len(self.name_input):
+            sx = sx_start + i * (slot_w + 10)
+            # Slot background
+            filled = i < len(self.name_input)
+            bg_col = (20, 40, 20) if filled else (10, 22, 10)
+            bd_col = CLR["vine"] if filled else CLR["vine_dk"]
+            slot_surf = pygame.Surface((slot_w, slot_h), pygame.SRCALPHA)
+            slot_surf.fill((*bg_col, 220))
+            screen.blit(slot_surf, (sx, sy))
+            pygame.draw.rect(screen, bd_col, (sx, sy, slot_w, slot_h), 2, border_radius=6)
+
+            if filled:
                 ch_surf = F_LARGE.render(self.name_input[i], True, CLR["gold"])
-                screen.blit(ch_surf, (sx + slot_w // 2 - ch_surf.get_width() // 2, by + 8))
-            elif i == len(self.name_input) and self.cursor_on:
-                # Blinking cursor in current slot
-                pygame.draw.rect(screen, CLR["gold"],
-                                 (sx + slot_w // 2 - 2, by + 12, 4, 36))
+                screen.blit(ch_surf, (sx + slot_w // 2 - ch_surf.get_width() // 2,
+                                      sy + slot_h // 2 - ch_surf.get_height() // 2))
+            elif i == len(self.name_input):
+                # Blinking cursor
+                if self.cursor_on:
+                    pygame.draw.rect(screen, CLR["gold"],
+                                     (sx + slot_w // 2 - 3, sy + 16, 6, 48), border_radius=2)
 
-        cnt = F_TINY.render(f"{len(self.name_input)}/{MAX_NAME_LEN}", True, (130, 160, 130))
-        screen.blit(cnt, (bx + bw - cnt.get_width() - 8, by + bh + 4))
-
-        h1 = F_SMALL.render("A-Z / 0-9 to type   BACKSPACE to delete", True, (160, 185, 160))
-        h2 = F_SMALL.render("ENTER to confirm   ESC to skip", True, (160, 185, 160))
-        screen.blit(h1, (W // 2 - h1.get_width() // 2, 300))
-        screen.blit(h2, (W // 2 - h2.get_width() // 2, 326))
-
-        self._draw_mini_leaderboard(368)
+        # ── Hints ─────────────────────────────────────────────────────────────
+        h1 = F_SMALL.render("A-Z  /  0-9  to type     BACKSPACE to delete", True, (140, 170, 140))
+        h2 = F_SMALL.render("ENTER to confirm     ESC to skip", True, (140, 170, 140))
+        screen.blit(h1, (W // 2 - h1.get_width() // 2, sy + slot_h + 18))
+        screen.blit(h2, (W // 2 - h2.get_width() // 2, sy + slot_h + 46))
 
     # ── Full Leaderboard ─────────────────────────────────────────────────────
     def _draw_leaderboard(self, t):
@@ -892,7 +908,7 @@ class Game:
         self._draw_lb_table(95, full=True)
 
         # CTA in gold (consistent with start screen)
-        cta = F_MED.render("SPACE to play again  |  ESC to quit", True,
+        cta = F_MED.render("SPACE to play again  |  ESC to home", True,
                            pulse_color(CLR["gold"], t))
         screen.blit(cta, (W // 2 - cta.get_width() // 2, H - 48))
 
@@ -919,7 +935,7 @@ class Game:
 
         self._draw_lb_table(234, full=False)
 
-        cta = F_MED.render("SPACE to play again  |  ESC to quit", True,
+        cta = F_MED.render("SPACE to play again  |  ESC to home", True,
                            pulse_color(CLR["gold"], t))  # gold, not white (UX rec)
         screen.blit(cta, (W // 2 - cta.get_width() // 2, H - 48))
 
@@ -1051,11 +1067,9 @@ class Game:
         pygame.draw.rect(screen, cta_col,       (cta_x, cta_y, cta_w, cta_h), 2, border_radius=6)
         screen.blit(cta_txt, (cta_x + 22, cta_y + 9))
 
-        # TAB hint + Q quit (bottom)
+        # TAB hint (bottom)
         lb_hint = F_TINY.render("TAB — view leaderboard", True, (80, 110, 80))
         screen.blit(lb_hint, (W // 2 - lb_hint.get_width() // 2, cta_y + cta_h + 10))
-        q_hint = F_TINY.render("Q — quit", True, (65, 88, 65))
-        screen.blit(q_hint, (W - q_hint.get_width() - 12, H - 22))
 
     # ── Event handling ───────────────────────────────────────────────────────
     def handle_event(self, event):
@@ -1091,10 +1105,6 @@ class Game:
             else:
                 self.state = ST_START             # anywhere  → home
             return
-
-        # ── Q — quit from start screen only ──────────────────────────────────
-        if event.key == pygame.K_q and self.state == ST_START:
-            pygame.quit(); sys.exit()
 
         # ── SPACE ─────────────────────────────────────────────────────────────
         if event.key == pygame.K_SPACE:
