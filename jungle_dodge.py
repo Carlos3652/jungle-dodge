@@ -26,38 +26,44 @@ PLAYER_FLOOR = GROUND_Y
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 CLR = {
-    "sky_top"    : (15,  55,  20),
-    "sky_bot"    : (40, 100,  30),
-    "ground"     : (90,  60,  30),
-    "grass"      : (55, 140,  40),
+    # ── Palette B — Ancient Temple (env + UI) ─────────────────────────────────
+    "sky_top"    : (  6,  14,   8),
+    "sky_bot"    : ( 14,  30,  12),
+    "ground"     : ( 60,  40,  20),
+    "grass"      : ( 44,  92,  32),
     "white"      : (255, 255, 255),
     "black"      : (  0,   0,   0),
     "red"        : (220,  50,  50),
     "yellow"     : (255, 210,  30),
     "orange"     : (255, 140,   0),
-    "vine"       : ( 70, 160,  50),
-    "vine_dk"    : ( 40, 100,  30),
-    "bomb"       : ( 25,  25,  25),
-    "fuse"       : (200, 150,  50),
-    "spark"      : (255, 200,  50),
-    "spike"      : (180, 180, 200),
-    "spike_dk"   : (120, 120, 140),
-    "boulder"    : (140, 115,  85),   # slightly lighter per UX review
-    "boulder_dk" : (100,  80,  60),
-    "heart"      : (220,  50,  80),
-    "heart_empty": ( 60,  25,  25),
-    "gold"       : (255, 215,   0),
+    "gold"       : (212, 160,  32),   # ancient gold
+    "heart"      : (140,  26,  26),
+    "heart_empty": ( 40,  10,  10),
+    "teal"       : (  0, 200, 160),   # stun bar
     "skin"       : (220, 180, 130),
     "shirt"      : (200, 170, 100),
     "pants"      : ( 80,  60,  40),
     "hat"        : (140, 100,  50),
-    "teal"       : (  0, 201, 177),   # stun colour per UX
     "lb_bg"      : ( 10,  25,  10),
     "lb_row_a"   : ( 18,  45,  18),
     "lb_row_b"   : ( 12,  32,  12),
-    "lb_border"  : ( 70, 160,  50),
     "silver"     : (192, 192, 192),
     "bronze"     : (205, 127,  50),
+    # HUD stone panel
+    "stone"      : ( 42,  46,  38),
+    "stone_hi"   : ( 62,  68,  56),
+    "olive"      : (120, 130,  90),   # HUD muted label colour
+    # ── Palette A — Neon Jungle (obstacles only) ──────────────────────────────
+    "vine"       : ( 38, 212,  72),   # neon green
+    "vine_dk"    : ( 15, 110,  35),
+    "lb_border"  : ( 38, 212,  72),   # matches vine
+    "bomb"       : ( 25,  25,  25),
+    "fuse"       : (255,  90,  20),   # neon orange fuse/explosion
+    "spark"      : (255, 200,  50),
+    "spike"      : (200,  70, 255),   # electric purple
+    "spike_dk"   : (130,  35, 180),
+    "boulder"    : (140, 115,  85),
+    "boulder_dk" : (100,  80,  60),
 }
 
 # ── Game Constants ─────────────────────────────────────────────────────────────
@@ -93,12 +99,14 @@ def _font(name, size, bold=False):
     except Exception:
         return pygame.font.Font(None, size)
 
-F_HUGE  = _font("Impact",   90)
-F_LARGE = _font("Impact",   54)
-F_MED   = _font("Arial",    30, bold=True)
-F_SMALL = _font("Arial",    22)
-F_TINY  = _font("Arial",    17)
-F_MONO  = _font("Consolas", 26, bold=True)   # HUD numbers (UX rec)
+F_HUGE  = _font("Impact",          90)
+F_LARGE = _font("Impact",          54)
+F_MED   = _font("Arial",           30, bold=True)
+F_SMALL = _font("Arial",           22)
+F_TINY  = _font("Arial",           17)
+F_MONO  = _font("Consolas",        26, bold=True)
+F_SERIF = _font("Times New Roman", 28, bold=True)   # Stone Tablet HUD values
+F_SKULL = _font("Segoe UI Symbol", 24)               # Skull life icons ☠
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -500,11 +508,12 @@ class Game:
         self.score       = 0
         self.level       = 1
         self.leaderboard = self._load_leaderboard()
-        self.name_input  = ""
-        self.cursor_t    = 0.0
-        self.cursor_on   = True
+        self.name_input   = ""
+        self.cursor_t     = 0.0
+        self.cursor_on    = True
+        self.start_idle_t = 0.0   # seconds idle on start screen (? hint)
         self._reset_level()
-        self.player      = Player()
+        self.player       = Player()
 
     # ── Leaderboard ──────────────────────────────────────────────────────────
     def _load_leaderboard(self):
@@ -551,9 +560,10 @@ class Game:
         self.levelup_t   = 0.0
 
     def _new_game(self):
-        self.score  = 0
-        self.level  = 1
-        self.player = Player()
+        self.score        = 0
+        self.level        = 1
+        self.player       = Player()
+        self.start_idle_t = 0.0
         self._reset_level()
 
     def _spawn_rate(self):
@@ -565,7 +575,7 @@ class Game:
         for y in range(GROUND_Y):
             t = y / GROUND_Y
             pygame.draw.line(bg,
-                             (int(15 + t * 25), int(55 + t * 45), int(20 + t * 10)),
+                             (int(6 + t * 8), int(14 + t * 16), int(8 + t * 4)),
                              (0, y), (W, y))
         pygame.draw.rect(bg, CLR["ground"], (0, GROUND_Y, W, H - GROUND_Y))
         pygame.draw.rect(bg, CLR["grass"],  (0, GROUND_Y, W, 14))
@@ -614,7 +624,11 @@ class Game:
                 self.cursor_on = not self.cursor_on
             return
 
-        if self.state in (ST_START, ST_GAMEOVER, ST_LEADERBOARD, ST_PAUSED):
+        if self.state == ST_START:
+            self.start_idle_t += dt
+            return
+
+        if self.state in (ST_GAMEOVER, ST_LEADERBOARD, ST_PAUSED):
             return
 
         if self.state == ST_LEVELUP:
@@ -713,38 +727,59 @@ class Game:
             screen.blit(txt, (int(p["x"]) - txt.get_width() // 2, int(p["y"])))
         self._draw_hud()
 
-    # ── HUD ──────────────────────────────────────────────────────────────────
+    # ── HUD — Stone Tablet (Variant A) ───────────────────────────────────────
     def _draw_hud(self):
-        # Panel (64px height per UX review)
-        panel = pygame.Surface((W, 64), pygame.SRCALPHA)
-        panel.fill((8, 28, 8, 215))
+        ph = 70
+        # Stone panel
+        panel = pygame.Surface((W, ph), pygame.SRCALPHA)
+        panel.fill((*CLR["stone"], 235))
         screen.blit(panel, (0, 0))
-        pygame.draw.line(screen, CLR["vine"], (0, 64), (W, 64), 2)
+        # Carved stone texture: subtle horizontal lines
+        for ty in range(12, ph, 12):
+            pygame.draw.line(screen, CLR["stone_hi"], (0, ty), (W, ty), 1)
+        # Panel border
+        pygame.draw.line(screen, CLR["vine"],    (0, ph),     (W, ph),     2)
+        pygame.draw.line(screen, CLR["vine_dk"], (0, ph + 2), (W, ph + 2), 1)
 
-        # Score
-        sc = F_MED.render(f"Score: {self.score}", True, CLR["gold"])
-        screen.blit(sc, (14, 16))
+        # ── SCORE (left) ──────────────────────────────────────────────────────
+        sc_lbl = F_TINY.render("SCORE", True, CLR["olive"])
+        screen.blit(sc_lbl, (14, 7))
+        sc_shad = F_SERIF.render(str(self.score), True, (18, 18, 12))
+        sc_val  = F_SERIF.render(str(self.score), True, CLR["gold"])
+        screen.blit(sc_shad, (15, 31))
+        screen.blit(sc_val,  (14, 30))
 
-        # Level
-        lv = F_MED.render(f"Level {self.level}", True, CLR["white"])
-        screen.blit(lv, (W // 2 - lv.get_width() // 2, 16))
+        # ── LEVEL (center) ────────────────────────────────────────────────────
+        lv_lbl = F_TINY.render("LEVEL", True, CLR["olive"])
+        screen.blit(lv_lbl, (W // 2 - lv_lbl.get_width() // 2, 7))
+        lv_shad = F_SERIF.render(str(self.level), True, (18, 18, 12))
+        lv_val  = F_SERIF.render(str(self.level), True, CLR["white"])
+        screen.blit(lv_shad, (W // 2 - lv_val.get_width() // 2 + 1, 31))
+        screen.blit(lv_val,  (W // 2 - lv_val.get_width() // 2,     30))
 
-        # Timer — clean integer format (UX review)
+        # ── TIME (right of center) ────────────────────────────────────────────
         time_left = max(0.0, LEVEL_TIME - self.level_timer)
         tcol = CLR["red"] if time_left < 10 else CLR["white"]
-        tm = F_MONO.render(f"{int(time_left):02d}s", True, tcol)
-        screen.blit(tm, (W - 200, 18))
+        tm_lbl  = F_TINY.render("TIME", True, CLR["olive"])
+        screen.blit(tm_lbl, (W // 2 + 90, 7))
+        tm_shad = F_SERIF.render(f"{int(time_left):02d}s", True, (18, 18, 12))
+        tm_val  = F_SERIF.render(f"{int(time_left):02d}s", True, tcol)
+        screen.blit(tm_shad, (W // 2 + 91, 31))
+        screen.blit(tm_val,  (W // 2 + 90, 30))
 
-        # Hearts
+        # ── LIVES — skull icons (right) ───────────────────────────────────────
+        lv2_lbl = F_TINY.render("LIVES", True, CLR["olive"])
+        screen.blit(lv2_lbl, (W - 120, 7))
         for i in range(MAX_LIVES):
-            draw_heart(screen, W - 80 + i * 30, 26, 10, i < self.player.lives)
+            sk_col = (190, 30, 30) if i < self.player.lives else (55, 55, 55)
+            sk = F_SKULL.render("\u2620", True, sk_col)   # ☠
+            screen.blit(sk, (W - 118 + i * 36, 28))
 
-        # Progress bar / stun bar (bottom strip)
+        # ── Vine growth bar / stun bar (bottom strip) ─────────────────────────
         bar_w = int(W * 0.55)
         bar_x = W // 2 - bar_w // 2
 
         if self.player.is_stunned():
-            # Replace progress bar with teal stun bar during stun (UX review)
             stun_pct   = max(0.0, self.player.stun_t / STUN_SECS)
             stun_bar_w = int(bar_w * stun_pct)
             pygame.draw.rect(screen, (20, 60, 55),  (bar_x, H - 14, bar_w, 10), border_radius=4)
@@ -753,10 +788,20 @@ class Game:
             st = F_SMALL.render("STUNNED", True, CLR["teal"])
             screen.blit(st, (W // 2 - st.get_width() // 2, H - 36))
         else:
-            prog = min(1.0, self.level_timer / LEVEL_TIME)
-            pygame.draw.rect(screen, (35, 70, 35),  (bar_x, H - 14, bar_w, 10), border_radius=4)
-            pygame.draw.rect(screen, CLR["gold"],   (bar_x, H - 14, int(bar_w * prog), 10), border_radius=4)
-            pygame.draw.rect(screen, CLR["vine_dk"],(bar_x, H - 14, bar_w, 10), 1, border_radius=4)
+            prog   = min(1.0, self.level_timer / LEVEL_TIME)
+            fill_w = int(bar_w * prog)
+            seg_w  = 18
+            pygame.draw.rect(screen, (18, 32, 18), (bar_x, H - 14, bar_w, 10), border_radius=4)
+            for sx in range(0, fill_w, seg_w):
+                seg = min(seg_w - 1, fill_w - sx)
+                col = CLR["vine"] if (sx // seg_w) % 2 == 0 else CLR["vine_dk"]
+                pygame.draw.rect(screen, col, (bar_x + sx, H - 14, seg, 10))
+            # Leaf tip at fill edge
+            if fill_w > 6:
+                lx = bar_x + fill_w
+                pygame.draw.polygon(screen, (80, 255, 110),
+                                    [(lx - 5, H - 14), (lx + 5, H - 9), (lx - 5, H - 4)])
+            pygame.draw.rect(screen, CLR["vine_dk"], (bar_x, H - 14, bar_w, 10), 1, border_radius=4)
 
     # ── Level-up overlay ─────────────────────────────────────────────────────
     def _draw_levelup_overlay(self):
@@ -933,60 +978,83 @@ class Game:
                 f"{i+1}. {entry.get('name','?'):<5}  {entry['score']:>6}", True, col)
             screen.blit(txt, (W // 2 - txt.get_width() // 2, start_y + 22 + i * 22))
 
-    # ── Start screen ─────────────────────────────────────────────────────────
+    # ── Tree silhouettes (start screen cinematic layer) ───────────────────────
+    def _draw_tree_silhouettes(self):
+        sil = (5, 16, 5)
+        for tx in [55, 175, 340, 490, 640, 795, 875]:
+            pygame.draw.rect(screen, sil, (tx - 7, GROUND_Y - 90, 14, 90))
+            for dy, r in [(90, 48), (120, 38), (148, 26)]:
+                pygame.draw.circle(screen, sil, (tx, GROUND_Y - dy), r)
+
+    # ── Start screen — Minimal Impact / Cinematic (Option 1) ──────────────────
     def _draw_start(self, t):
         screen.blit(self.bg, (0, 0))
+
+        # Heavy cinematic overlay
         ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((0, 18, 0, 145))
+        ov.fill((0, 6, 0, 210))
         screen.blit(ov, (0, 0))
 
-        title  = F_HUGE.render("JUNGLE DODGE", True, CLR["gold"])
-        shadow = F_HUGE.render("JUNGLE DODGE", True, (40, 22, 0))
-        screen.blit(shadow, (W // 2 - title.get_width() // 2 + 4, 48))  # tighter y (UX rec)
-        screen.blit(title,  (W // 2 - title.get_width() // 2, 44))
+        # Tree silhouette layer near bottom
+        self._draw_tree_silhouettes()
 
-        sub = F_MED.render("Survive the jungle — dodge everything that falls!", True, CLR["white"])
-        screen.blit(sub, (W // 2 - sub.get_width() // 2, 148))
-
-        # Divider
-        pygame.draw.line(screen, CLR["vine_dk"], (W // 2 - 280, 186), (W // 2 + 280, 186), 1)
-
-        legend = [
-            ("VINE",    CLR["vine"],    "Slow — sways as it drops"),
-            ("BOMB",    CLR["orange"],  "Explodes on impact — watch the blast radius"),
-            ("SPIKE",   CLR["spike"],   "Fast — barely any time to react"),
-            ("BOULDER", CLR["boulder"], "Slow fall, then rolls across the ground"),
-        ]
-        ly = 198
-        for name, col, desc in legend:
-            ns = F_MED.render(name,   True, col)
-            ds = F_SMALL.render(desc, True, (195, 215, 195))
-            screen.blit(ns, (W // 2 - 210, ly))
-            screen.blit(ds, (W // 2 - 10,  ly + 5))
-            ly += 40
-
-        # Divider
-        pygame.draw.line(screen, CLR["vine_dk"], (W // 2 - 280, ly + 2), (W // 2 + 280, ly + 2), 1)
-
-        ctrl = F_SMALL.render(
-            "Arrow keys / A-D to move  |  3 lives  |  45 seconds per level",
-            True, (170, 195, 170))
-        screen.blit(ctrl, (W // 2 - ctrl.get_width() // 2, ly + 10))
-
+        # ── Best score badge (top-right) ──────────────────────────────────────
         if self.leaderboard:
-            best = self.leaderboard[0]
-            hi = F_SMALL.render(
-                f"Best: {best.get('name','?')}  {best['score']} pts", True, CLR["gold"])
-            screen.blit(hi, (W // 2 - hi.get_width() // 2, ly + 36))
-            lb_hint = F_TINY.render("TAB — view full leaderboard", True, (130, 160, 130))
-            screen.blit(lb_hint, (W // 2 - lb_hint.get_width() // 2, ly + 58))
+            best      = self.leaderboard[0]
+            badge_txt = F_TINY.render(
+                f"BEST  {best.get('name','?')}  {best['score']} pts", True, CLR["gold"])
+            bw = badge_txt.get_width() + 20
+            bh = badge_txt.get_height() + 10
+            bx = W - bw - 12
+            by = 12
+            pygame.draw.rect(screen, (28, 22, 4),  (bx, by, bw, bh), border_radius=4)
+            pygame.draw.rect(screen, CLR["gold"],   (bx, by, bw, bh), 1, border_radius=4)
+            screen.blit(badge_txt, (bx + 10, by + 5))
 
-        # Pulsing CTA
-        cta = F_LARGE.render(">> PRESS SPACE TO START <<", True, pulse_color(CLR["gold"], t))
-        screen.blit(cta, (W // 2 - cta.get_width() // 2, H - 70))
+        # ── ? icon (top-left) — reveals controls after 5 s idle ───────────────
+        pygame.draw.rect(screen, (18, 32, 18), (10, 10, 28, 28), border_radius=4)
+        pygame.draw.rect(screen, (55, 85, 55), (10, 10, 28, 28), 1, border_radius=4)
+        qi = F_SMALL.render("?", True, (100, 140, 100))
+        screen.blit(qi, (10 + 14 - qi.get_width() // 2, 10 + 14 - qi.get_height() // 2))
 
-        # Quit hint
-        q_hint = F_TINY.render("Q — quit", True, (90, 110, 90))
+        if self.start_idle_t >= 5.0:
+            cp = pygame.Surface((250, 80), pygame.SRCALPHA)
+            cp.fill((0, 18, 0, 210))
+            screen.blit(cp, (44, 8))
+            for row, txt in enumerate([
+                "Arrow keys / A-D  — move",
+                "3 lives  |  45 s per level",
+                "ESC — pause / home",
+            ]):
+                s = F_TINY.render(txt, True, (175, 210, 175))
+                screen.blit(s, (50, 14 + row * 22))
+
+        # ── Title ─────────────────────────────────────────────────────────────
+        title  = F_HUGE.render("JUNGLE DODGE", True, CLR["gold"])
+        shadow = F_HUGE.render("JUNGLE DODGE", True, (28, 16, 0))
+        cy_title = H // 2 - 100
+        screen.blit(shadow, (W // 2 - title.get_width() // 2 + 4, cy_title + 4))
+        screen.blit(title,  (W // 2 - title.get_width() // 2,     cy_title))
+
+        # ── Tagline ───────────────────────────────────────────────────────────
+        tag = F_SMALL.render("SURVIVE. DODGE. OUTLAST.", True, (185, 210, 185))
+        screen.blit(tag, (W // 2 - tag.get_width() // 2, cy_title + 106))
+
+        # ── Bordered CTA ──────────────────────────────────────────────────────
+        cta_col = pulse_color(CLR["gold"], t)
+        cta_txt = F_MED.render(">> PRESS SPACE TO START <<", True, cta_col)
+        cta_w   = cta_txt.get_width() + 44
+        cta_h   = cta_txt.get_height() + 18
+        cta_x   = W // 2 - cta_w // 2
+        cta_y   = cy_title + 148
+        pygame.draw.rect(screen, (28, 22, 4),  (cta_x, cta_y, cta_w, cta_h), border_radius=6)
+        pygame.draw.rect(screen, cta_col,       (cta_x, cta_y, cta_w, cta_h), 2, border_radius=6)
+        screen.blit(cta_txt, (cta_x + 22, cta_y + 9))
+
+        # TAB hint + Q quit (bottom)
+        lb_hint = F_TINY.render("TAB — view leaderboard", True, (80, 110, 80))
+        screen.blit(lb_hint, (W // 2 - lb_hint.get_width() // 2, cta_y + cta_h + 10))
+        q_hint = F_TINY.render("Q — quit", True, (65, 88, 65))
         screen.blit(q_hint, (W - q_hint.get_width() - 12, H - 22))
 
     # ── Event handling ───────────────────────────────────────────────────────
