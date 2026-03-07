@@ -559,26 +559,159 @@ class Game:
     def _spawn_rate(self):
         return max(MIN_SPAWN, BASE_SPAWN - (self.level - 1) * SPAWN_DEC)
 
-    # ── Background ───────────────────────────────────────────────────────────
+    # ── Background — Jungle Cliff Face (Lost Temple Ruins) ───────────────────
     def _build_bg(self):
-        bg = pygame.Surface((W, H))
+        bg  = pygame.Surface((W, H))
+        sy  = GROUND_Y / 340      # SVG cliff is 340 tall; game play area is GROUND_Y (510)
+        def svy(v): return int(v * sy)   # scale SVG y-coordinate to game y
+
+        # ── 1. Cliff gradient fill (y=0 → GROUND_Y) ──────────────────────────
+        c_top = (26, 24, 16); c_mid = (42, 36, 24); c_bot = (34, 30, 20)
         for y in range(GROUND_Y):
             t = y / GROUND_Y
-            pygame.draw.line(bg,
-                             (int(6 + t * 8), int(14 + t * 16), int(8 + t * 4)),
-                             (0, y), (W, y))
+            if t < 0.4:
+                r,g,b = [int(c_top[i]+(c_mid[i]-c_top[i])*(t/0.4)) for i in range(3)]
+            else:
+                r,g,b = [int(c_mid[i]+(c_bot[i]-c_mid[i])*((t-0.4)/0.6)) for i in range(3)]
+            pygame.draw.line(bg, (r, g, b), (0, y), (W, y))
+
+        # ── 2. Horizontal strata lines ────────────────────────────────────────
+        sc = (26, 24, 8)
+        for svg_y in [55, 95, 140, 185, 230, 275]:
+            pygame.draw.line(bg, sc, (0, svy(svg_y)), (W, svy(svg_y)), 1)
+
+        # ── 3. Crack network ──────────────────────────────────────────────────
+        cc = (12, 10, 6)
+        def crack(pts, w=2):
+            pygame.draw.lines(bg, cc, False, [(x, svy(y)) for x,y in pts], w)
+        crack([(50,60),(65,95),(55,140),(70,185),(60,230),(72,275),(65,330)], 2)
+        crack([(65,120),(82,145)], 1)
+        crack([(200,55),(188,95),(198,140),(185,175)], 1)
+        crack([(700,65),(715,110),(705,155),(718,200),(708,245),(720,290)], 2)
+        crack([(715,155),(730,175)], 1)
+        crack([(830,80),(818,125),(828,170)], 1)
+        crack([(400,100),(388,140),(400,170),(390,210),(402,245)], 1)
+
+        # ── 4. Deity face ─────────────────────────────────────────────────────
+        FACE   = (37, 32, 24)
+        CROWN  = (34, 30, 20)
+        TRICRN = (42, 36, 24)
+        DARK   = (14, 12,  8)
+
+        # Face ellipse
+        pygame.draw.ellipse(bg, FACE,
+            (450-88, svy(175)-svy(95), 176, svy(190)))
+        pygame.draw.ellipse(bg, (26, 22, 16),
+            (450-88, svy(175)-svy(95), 176, svy(190)), 3)
+
+        # Crown base + pillars
+        pygame.draw.rect(bg, CROWN, (370, svy(82), 160, svy(22)))
+        pygame.draw.rect(bg, CROWN, (385, svy(60),  22, svy(26)))
+        pygame.draw.rect(bg, CROWN, (430, svy(55),  40, svy(30)))
+        pygame.draw.rect(bg, CROWN, (493, svy(60),  22, svy(26)))
+
+        # Crown triangle points
+        pygame.draw.polygon(bg, TRICRN, [(388,svy(82)),(399,svy(58)),(410,svy(82))])
+        pygame.draw.polygon(bg, TRICRN, [(432,svy(82)),(450,svy(50)),(468,svy(82))])
+        pygame.draw.polygon(bg, TRICRN, [(490,svy(82)),(501,svy(58)),(512,svy(82))])
+
+        # Eye sockets
+        pygame.draw.rect(bg, DARK, (390, svy(145), 48, svy(30)), border_radius=4)
+        pygame.draw.rect(bg, DARK, (462, svy(145), 48, svy(30)), border_radius=4)
+
+        # Eye teal glow (SRCALPHA — pre-rendered once into bg)
+        gw, gh = 32, max(1, svy(16))
+        eye_s = pygame.Surface((gw, gh), pygame.SRCALPHA)
+        pygame.draw.ellipse(eye_s, (0, 200, 160, 46), (0, 0, gw, gh))
+        bg.blit(eye_s, (414-gw//2, svy(160)-gh//2))
+        bg.blit(eye_s, (486-gw//2, svy(160)-gh//2))
+
+        # Nose ridge
+        pygame.draw.lines(bg, (26,24,16), False,
+            [(440,svy(175)),(450,svy(200)),(460,svy(175))], 4)
+
+        # Mouth + teeth
+        pygame.draw.rect(bg, DARK, (410, svy(215), 80, svy(22)), border_radius=3)
+        for tx in [424, 438, 452, 466, 480]:
+            pygame.draw.line(bg, (26,24,8), (tx, svy(215)), (tx, svy(215)+svy(22)), 2)
+
+        # Geometric frame around face
+        pygame.draw.rect(bg, (46,40,24), (352, svy(78), 196, svy(202)), 4)
+        pygame.draw.rect(bg, (38,32,14), (358, svy(84), 184, svy(190)), 1)
+
+        # Face diagonal damage crack
+        crack([(395,105),(420,140),(408,165),(425,195),(415,230)], 3)
+        crack([(420,140),(438,148)], 1)
+
+        # ── 5. Vine cascades ──────────────────────────────────────────────────
+        VDK = (26, 96, 16)
+        VBR = CLR["vine"]   # neon green
+        def vine(pts, col, w):
+            pygame.draw.lines(bg, col, False, [(x, svy(y)) for x,y in pts], w)
+
+        # Left wall cascade (dark body + bright highlight)
+        vine([(0,0),(8,40),(4,80),(11,120),(4,160),(9,200),(3,245),(9,285),(4,340)], VDK, 9)
+        vine([(13,0),(19,45),(14,90),(21,130),(13,175),(19,215),(12,260)], VBR, 3)
+        # Left secondary cluster
+        vine([(100,0),(93,28),(97,58),(90,88),(94,120),(87,155),(92,190),(85,225),(90,265),(83,300),(88,340)], VDK, 6)
+
+        # Right wall cascade
+        vine([(900,0),(892,40),(896,80),(889,120),(893,160),(887,200),(891,245),(885,285),(892,340)], VDK, 9)
+        vine([(887,0),(880,45),(884,90),(878,135),(883,178),(877,220),(882,260),(876,300)], VBR, 3)
+        # Right secondary cluster
+        vine([(800,0),(806,30),(803,65),(810,100),(804,135),(812,170),(805,210),(813,250),(806,290),(815,340)], VDK, 6)
+
+        # Vine leaf clusters
+        for lx, lsvy, lrx, lry, lcol in [
+            (18,  100, 25, 12, VDK),
+            (8,   200, 28, 12, VBR),
+            (92,  160, 22, 10, VDK),
+            (880, 110, 25, 12, VDK),
+            (892, 210, 28, 12, VBR),
+            (808, 170, 22, 10, VDK),
+        ]:
+            pygame.draw.ellipse(bg, lcol,
+                (lx-lrx, svy(lsvy)-svy(lry), lrx*2, max(1, svy(lry)*2)))
+
+        # ── 6. Canopy overhang at cliff top ───────────────────────────────────
+        for cx, csv_y, crx, cry, rgb in [
+            (100, 10, 140, 50, (14, 32,  8)),
+            (300,  5, 180, 45, (12, 28,  6)),
+            (550,  8, 200, 48, (14, 32,  8)),
+            (800, 12, 150, 50, (12, 28,  6)),
+            (450,  0, 120, 35, (18, 40,  8)),
+        ]:
+            cs = pygame.Surface((crx*2, max(1,svy(cry)*2)), pygame.SRCALPHA)
+            pygame.draw.ellipse(cs, (*rgb, 230), (0, 0, crx*2, max(1,svy(cry)*2)))
+            bg.blit(cs, (cx-crx, max(0, svy(csv_y)-svy(cry))))
+        # Canopy leaf detail
+        for cx, csv_y, crx, cry, rgb in [
+            ( 80, 25,  60, 30, (20, 48, 16)),
+            (220, 18,  80, 32, (22, 46, 14)),
+            (420, 15,  90, 28, (20, 48, 16)),
+            (680, 20, 100, 35, (22, 46, 14)),
+            (880, 28,  60, 28, (20, 48, 16)),
+        ]:
+            cs = pygame.Surface((crx*2, max(1,svy(cry)*2)), pygame.SRCALPHA)
+            pygame.draw.ellipse(cs, (*rgb, 178), (0, 0, crx*2, max(1,svy(cry)*2)))
+            bg.blit(cs, (cx-crx, max(0, svy(csv_y)-svy(cry))))
+
+        # ── 7. Ground — flagstone path + grass strip ──────────────────────────
         pygame.draw.rect(bg, CLR["ground"], (0, GROUND_Y, W, H - GROUND_Y))
-        pygame.draw.rect(bg, CLR["grass"],  (0, GROUND_Y, W, 14))
-        for tx in [70, 200, 360, 490, 640, 770, 870]:
-            pygame.draw.rect(bg, (75, 50, 22), (tx - 5, GROUND_Y - 65, 10, 65))
-            for dy, r, col in [(65, 36, (28, 95, 22)),
-                               (88, 28, (38, 118, 28)),
-                               (108, 20, (50, 140, 35))]:
-                pygame.draw.circle(bg, col, (tx, GROUND_Y - dy), r)
-        for vx in [130, 310, 560, 720]:
-            for i in range(6):
-                col = CLR["vine"] if i % 2 == 0 else CLR["vine_dk"]
-                pygame.draw.rect(bg, col, (vx - 4, i * 14, 8, 14))
+        FLAG = (26, 18, 8)
+        for fx, fw in [(0,120),(120,140),(260,110),(370,160),(530,130),(660,120),(780,120)]:
+            pygame.draw.rect(bg, FLAG, (fx, GROUND_Y, fw, H - GROUND_Y), 1)
+        for pts in [[(60,3),(70,28),(62,50)],[(340,3),(352,25),(344,50)],[(620,3),(610,30),(622,50)]]:
+            pygame.draw.lines(bg, (12,10,6), False, [(x, GROUND_Y+y) for x,y in pts], 1)
+        pygame.draw.rect(bg, CLR["grass"], (0, GROUND_Y, W, 14))
+
+        # ── 8. Ground mist ────────────────────────────────────────────────────
+        mist = pygame.Surface((W, 80), pygame.SRCALPHA)
+        for my in range(80):
+            a = int(70 * (1.0 - my / 80))
+            pygame.draw.line(mist, (26, 48, 20, a), (0, my), (W, my))
+        bg.blit(mist, (0, GROUND_Y - 60))
+
         return bg
 
     # ── Spawning ─────────────────────────────────────────────────────────────
