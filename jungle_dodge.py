@@ -374,18 +374,19 @@ class Bomb(Obstacle):
             self.y        = float(GROUND_Y - self.R)
             self.exploded = True
             self.scored   = True
-            if not self._exp_hit_done:
-                self._exp_hit_done = True
-                if not player.is_hit_immune():
-                    dist = math.hypot(self.x - player.x,
-                                      self.y - (player.y + Player.PH // 2))
-                    if dist < self.exp_r:
-                        self.did_hit = True   # mark before hitting (CRIT-01)
-                        player.hit()
 
     def check_hit(self, player):
-        return (not player.is_hit_immune() and not self.exploded
-                and self.rect.colliderect(player.rect))
+        if player.is_hit_immune():
+            return False
+        if not self.exploded:
+            return self.rect.colliderect(player.rect)
+        # Explosion radius — checked once on the frame explosion starts
+        if not self._exp_hit_done:
+            self._exp_hit_done = True
+            dist = math.hypot(self.x - player.x,
+                              self.y - (player.y + player.PH // 2))
+            return dist < self.exp_r
+        return False
 
     def draw(self, surf):
         cx, cy = int(self.x), int(self.y)
@@ -558,6 +559,21 @@ class Game:
         self._ctrl_panel.fill((0, 18, 0, 210))
         self._hud_panel      = pygame.Surface((W, int(72 * S)), pygame.SRCALPHA)
         self._hud_panel.fill((*CLR["stone"], 238))
+        # Pre-cached overlay surfaces — avoid 33 MB SRCALPHA alloc per frame
+        self._ov_levelup  = pygame.Surface((W, H), pygame.SRCALPHA)
+        self._ov_levelup.fill((0, 30, 5, 165))
+        self._ov_pause    = pygame.Surface((W, H), pygame.SRCALPHA)
+        self._ov_pause.fill((0, 0, 0, 160))
+        self._ov_lb       = pygame.Surface((W, H), pygame.SRCALPHA)
+        self._ov_lb.fill((0, 15, 0, 170))
+        self._ov_gameover = pygame.Surface((W, H), pygame.SRCALPHA)
+        self._ov_gameover.fill((28, 5, 5, 185))
+        # Pre-cached name-entry slot backgrounds (filled / empty)
+        _sw = int(72 * S); _sh = int(80 * S)
+        self._slot_filled = pygame.Surface((_sw, _sh), pygame.SRCALPHA)
+        self._slot_filled.fill((20, 40, 20, 220))
+        self._slot_empty  = pygame.Surface((_sw, _sh), pygame.SRCALPHA)
+        self._slot_empty.fill((10, 22, 10, 220))
         self._reset_level()
         self.player          = Player()
 
@@ -586,7 +602,7 @@ class Game:
 
     def _submit_score(self, name):
         self.leaderboard.append({
-            "name": name.upper() or "?????",
+            "name": name.upper() or "-----",
             "score": self.score,
             "level": self.level,
         })
@@ -825,6 +841,13 @@ class Game:
 
         if self.state == ST_LEVELUP:
             self.levelup_t -= dt
+            # Keep player timers ticking so stun doesn't extend by 2.8 s across boundary
+            p = self.player
+            if p.stun_t > 0:
+                p.stun_t   = max(0.0, p.stun_t - dt)
+                p.flash_t += dt * 12
+            if p.immune_t > 0:
+                p.immune_t = max(0.0, p.immune_t - dt)
             if self.levelup_t <= 0:
                 self._reset_level()
                 self.state = ST_PLAYING
@@ -914,11 +937,13 @@ class Game:
         self.player.draw(screen)
         for p in self.particles:
             a = max(0.0, 1.0 - p["t"] / p["dur"])
-            if a < 0.02:            # BUG-11: skip near-zero alpha
+            if a < 0.02:
                 continue
-            col = tuple(int(c * a) for c in p["col"])
-            txt = F_MED.render(p["text"], True, col)
-            screen.blit(txt, (int(p["x"]) - txt.get_width() // 2, int(p["y"])))
+            if "_surf" not in p:
+                p["_surf"] = F_MED.render(p["text"], True, p["col"])
+            surf = p["_surf"]
+            surf.set_alpha(int(a * 255))
+            screen.blit(surf, (int(p["x"]) - surf.get_width() // 2, int(p["y"])))
         self._draw_hud()
 
     # ── HUD — Stone Tablet (bottom, Variant A) ───────────────────────────────
@@ -985,7 +1010,8 @@ class Game:
             stun_pct   = max(0.0, self.player.stun_t / STUN_SECS)
             stun_bar_w = int(bar_w * stun_pct)
             pygame.draw.rect(screen, (20, 60, 55),  (bar_x, bar_y, bar_w, bar_h), border_radius=brd)
-            pygame.draw.rect(screen, CLR["teal"],   (bar_x, bar_y, stun_bar_w, bar_h), border_radius=brd)
+            if stun_bar_w > 0:   # guard: border_radius crashes on width=0
+                pygame.draw.rect(screen, CLR["teal"], (bar_x, bar_y, stun_bar_w, bar_h), border_radius=brd)
             pygame.draw.rect(screen, (0, 140, 120), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
             # STUNNED label sits above the bar, inside the panel
             st = F_TINY.render("STUNNED", True, CLR["teal"])
@@ -1011,9 +1037,7 @@ class Game:
 
     # ── Level-up overlay ─────────────────────────────────────────────────────
     def _draw_levelup_overlay(self):
-        ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((0, 30, 5, 165))
-        screen.blit(ov, (0, 0))
+        screen.blit(self._ov_levelup, (0, 0))
         lt  = F_LARGE.render(f"LEVEL {self.level}!", True, CLR["gold"])
         sub = F_MED.render("Things are getting faster...", True, CLR["white"])
         sc  = F_SMALL.render(f"Score so far: {self.score}", True, CLR["gold"])
@@ -1023,9 +1047,7 @@ class Game:
 
     # ── Pause overlay ─────────────────────────────────────────────────────────
     def _draw_pause_overlay(self):
-        ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 160))
-        screen.blit(ov, (0, 0))
+        screen.blit(self._ov_pause, (0, 0))
         pt  = F_LARGE.render("PAUSED", True, CLR["white"])
         h1  = F_MED.render("SPACE — resume", True, (195, 215, 195))
         h2  = F_MED.render("ESC — return to home screen", True, (195, 215, 195))
@@ -1071,13 +1093,9 @@ class Game:
 
         for i in range(MAX_NAME_LEN):
             sx = sx_start + i * (slot_w + gap)
-            # Slot background
             filled = i < len(self.name_input)
-            bg_col = (20, 40, 20) if filled else (10, 22, 10)
             bd_col = CLR["vine"] if filled else CLR["vine_dk"]
-            slot_surf = pygame.Surface((slot_w, slot_h), pygame.SRCALPHA)
-            slot_surf.fill((*bg_col, 220))
-            screen.blit(slot_surf, (sx, sy))
+            screen.blit(self._slot_filled if filled else self._slot_empty, (sx, sy))
             pygame.draw.rect(screen, bd_col, (sx, sy, slot_w, slot_h), max(1, int(2 * S)), border_radius=int(6 * S))
 
             if filled:
@@ -1101,9 +1119,7 @@ class Game:
     # ── Full Leaderboard ─────────────────────────────────────────────────────
     def _draw_leaderboard(self, t):
         screen.blit(self.bg, (0, 0))
-        ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((0, 15, 0, 170))
-        screen.blit(ov, (0, 0))
+        screen.blit(self._ov_lb, (0, 0))
 
         title  = F_LARGE.render("TOP 10 LEADERBOARD", True, CLR["gold"])
         shadow = F_LARGE.render("TOP 10 LEADERBOARD", True, (50, 35, 0))
@@ -1120,9 +1136,7 @@ class Game:
     # ── Game Over (not top 10) ────────────────────────────────────────────────
     def _draw_gameover(self, t):
         screen.blit(self.bg, (0, 0))
-        ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((28, 5, 5, 185))
-        screen.blit(ov, (0, 0))
+        screen.blit(self._ov_gameover, (0, 0))
 
         go   = F_HUGE.render("GAME OVER", True, CLR["red"])
         shad = F_HUGE.render("GAME OVER", True, (80, 0, 0))
@@ -1190,7 +1204,7 @@ class Game:
             for text, x_off, color in [
                 (str(i + 1),                 x1, fc),
                 (entry.get("name", "?"),     x2, CLR["white"]),
-                (str(entry["score"]),         x3, CLR["gold"]),
+                (str(entry.get("score", 0)),  x3, CLR["gold"]),
                 (str(entry.get("level","-")),x4, (160, 200, 160)),
             ]:
                 s = font.render(text, True, color)
@@ -1325,6 +1339,8 @@ class Game:
                 self.state = ST_START             # paused    → home
             elif self.state == ST_START:
                 pass                              # ESC on home is a no-op — close window to quit
+            elif self.state == ST_LEVELUP:
+                pass                              # ESC during level-up is a no-op — let timer expire
             else:
                 self._new_game()                  # reset stale game data
                 self.start_idle_t = 0.0           # restart idle timer for ? hint
