@@ -104,7 +104,6 @@ F_LARGE = _font("Impact",          54)
 F_MED   = _font("Arial",           30, bold=True)
 F_SMALL = _font("Arial",           22)
 F_TINY  = _font("Arial",           17)
-F_MONO  = _font("Consolas",        26, bold=True)
 F_SERIF = _font("Times New Roman", 28, bold=True)   # Stone Tablet HUD values
 F_SKULL = _font("Segoe UI Symbol", 24)               # Skull life icons ☠
 
@@ -259,7 +258,7 @@ class Vine(Obstacle):
             self.y      += self.vy * dt
             self.sway_t += dt * self.sway_s
             self.x      += math.sin(self.sway_t) * self.sway_a * dt
-            self.x       = max(20, min(W - 20, self.x))
+            self.x       = max(self.BW, min(W - self.BW, self.x))
             if self.y + self.BH >= GROUND_Y:
                 self.y      = float(GROUND_Y - self.BH)
                 self.landed = True
@@ -270,7 +269,8 @@ class Vine(Obstacle):
                 self.alive = False
 
     def check_hit(self, player):
-        return not player.is_hit_immune() and self.rect.colliderect(player.rect)
+        return (not self.landed and not player.is_hit_immune()
+                and self.rect.colliderect(player.rect))
 
     def draw(self, surf):
         segs  = 9
@@ -481,18 +481,6 @@ class Boulder(Obstacle):
 # ─────────────────────────────────────────────────────────────────────────────
 #  Helpers
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_heart(surf, cx, cy, r, filled):
-    col = CLR["heart"] if filled else CLR["heart_empty"]
-    pygame.draw.circle(surf, col, (cx - r // 2, cy), r // 2 + 1)
-    pygame.draw.circle(surf, col, (cx + r // 2, cy), r // 2 + 1)
-    pygame.draw.polygon(surf, col, [(cx - r, cy + 2), (cx, cy + r + 3), (cx + r, cy + 2)])
-
-def draw_panel(surf, x, y, w, h, col, alpha=210, radius=8):
-    s = pygame.Surface((w, h), pygame.SRCALPHA)
-    s.fill((*col, alpha))
-    surf.blit(s, (x, y))
-    pygame.draw.rect(surf, CLR["lb_border"], (x, y, w, h), 2, border_radius=radius)
-
 def pulse_color(base_col, ticks, speed=0.004, lo=0.65):
     p = lo + (1 - lo) * (0.5 + 0.5 * math.sin(ticks * speed))
     return tuple(int(c * p) for c in base_col)
@@ -508,12 +496,17 @@ class Game:
         self.score       = 0
         self.level       = 1
         self.leaderboard = self._load_leaderboard()
-        self.name_input   = ""
-        self.cursor_t     = 0.0
-        self.cursor_on    = True
-        self.start_idle_t = 0.0   # seconds idle on start screen (? hint)
+        self.name_input      = ""
+        self.cursor_t        = 0.0
+        self.cursor_on       = True
+        self.start_idle_t    = 0.0   # seconds idle on start screen (? hint)
+        # Cached surfaces (avoid per-frame allocations)
+        self._ctrl_panel     = pygame.Surface((250, 80), pygame.SRCALPHA)
+        self._ctrl_panel.fill((0, 18, 0, 210))
+        self._hud_panel      = pygame.Surface((W, 72), pygame.SRCALPHA)
+        self._hud_panel.fill((*CLR["stone"], 238))
         self._reset_level()
-        self.player       = Player()
+        self.player          = Player()
 
     # ── Leaderboard ──────────────────────────────────────────────────────────
     def _load_leaderboard(self):
@@ -547,9 +540,6 @@ class Game:
         self.leaderboard.sort(key=lambda e: e["score"], reverse=True)
         self.leaderboard = self.leaderboard[:LEADERBOARD_SIZE]
         self._save_leaderboard()
-
-    def _session_best(self):
-        return self.leaderboard[0]["score"] if self.leaderboard else 0
 
     # ── Init helpers ─────────────────────────────────────────────────────────
     def _reset_level(self):
@@ -672,7 +662,9 @@ class Game:
             if obs.scored and not obs._pts and not obs.did_hit:
                 obs._pts = True
                 self.score += DODGE_PTS
-                self._pop(obs.x, GROUND_Y - 30, f"+{DODGE_PTS}", CLR["gold"])
+                # Pop above explosion fireball for bombs; ground level for others
+                pop_y = GROUND_Y - obs.exp_r - 10 if isinstance(obs, Bomb) else GROUND_Y - 30
+                self._pop(obs.x, pop_y, f"+{DODGE_PTS}", CLR["gold"])
 
         self.obstacles = [o for o in self.obstacles if o.alive]
 
@@ -732,10 +724,8 @@ class Game:
         ph  = 72          # panel height
         py  = H - ph      # panel top y  (= 528)
 
-        # Stone panel
-        panel = pygame.Surface((W, ph), pygame.SRCALPHA)
-        panel.fill((*CLR["stone"], 238))
-        screen.blit(panel, (0, py))
+        # Stone panel (cached surface — no per-frame allocation)
+        screen.blit(self._hud_panel, (0, py))
         # Carved stone texture: subtle horizontal lines
         for ty in range(py + 10, H, 10):
             pygame.draw.line(screen, CLR["stone_hi"], (0, ty), (W, ty), 1)
@@ -761,12 +751,13 @@ class Game:
         screen.blit(lv_val,  (lv_x,     py + 27))
 
         # ── TIME (center-right) ───────────────────────────────────────────────
-        time_left = max(0.0, LEVEL_TIME - self.level_timer)
+        time_left  = max(0.0, LEVEL_TIME - self.level_timer)
+        display_t  = math.ceil(time_left)   # show 01s until actually expired (not 00s a full second early)
         tcol = CLR["red"] if time_left < 10 else CLR["white"]
         tm_lbl  = F_TINY.render("TIME", True, CLR["olive"])
         screen.blit(tm_lbl, (W // 2 + 40, py + 6))
-        tm_shad = F_SERIF.render(f"{int(time_left):02d}s", True, (18, 18, 12))
-        tm_val  = F_SERIF.render(f"{int(time_left):02d}s", True, tcol)
+        tm_shad = F_SERIF.render(f"{display_t:02d}s", True, (18, 18, 12))
+        tm_val  = F_SERIF.render(f"{display_t:02d}s", True, tcol)
         screen.blit(tm_shad, (W // 2 + 41, py + 28))
         screen.blit(tm_val,  (W // 2 + 40, py + 27))
 
@@ -793,7 +784,8 @@ class Game:
             st = F_TINY.render("STUNNED", True, CLR["teal"])
             screen.blit(st, (W // 2 - st.get_width() // 2, bar_y - 16))
         else:
-            prog   = min(1.0, self.level_timer / LEVEL_TIME)
+            # Show empty bar during level-up overlay (level_timer > LEVEL_TIME)
+            prog   = 0.0 if self.state == ST_LEVELUP else min(1.0, self.level_timer / LEVEL_TIME)
             fill_w = int(bar_w * prog)
             seg_w  = 18
             pygame.draw.rect(screen, (18, 32, 18), (bar_x, bar_y, bar_w, 8), border_radius=4)
@@ -833,11 +825,8 @@ class Game:
 
     # ── Name Entry ───────────────────────────────────────────────────────────
     def _draw_name_entry(self, t):
-        # Full clean slate — no game elements bleeding through
-        screen.fill(CLR["black"])
-        ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((0, 12, 0, 255))
-        screen.blit(ov, (0, 0))
+        # Full clean slate — solid fill, no SRCALPHA overhead
+        screen.fill((0, 12, 0))
 
         # Gold vine dividers for structure
         pygame.draw.line(screen, CLR["vine_dk"], (W // 2 - 320, H // 2 - 120),
@@ -848,10 +837,10 @@ class Game:
         # ── Title ────────────────────────────────────────────────────────────
         trop = F_LARGE.render("YOU MADE THE TOP 10!", True, CLR["gold"])
         shad = F_LARGE.render("YOU MADE THE TOP 10!", True, (50, 30, 0))
-        screen.blit(shad, (W // 2 - trop.get_width() // 2 + 3, H // 2 - 200 + 3))
-        screen.blit(trop, (W // 2 - trop.get_width() // 2,     H // 2 - 200))
+        screen.blit(shad, (W // 2 - trop.get_width() // 2 + 3, H // 2 - 218 + 3))
+        screen.blit(trop, (W // 2 - trop.get_width() // 2,     H // 2 - 218))
 
-        # ── Score / level ─────────────────────────────────────────────────────
+        # ── Score / level (pushed down so it doesn't overlap title) ───────────
         sc = F_SMALL.render(f"Score: {self.score}   |   Level {self.level}", True, (200, 220, 200))
         screen.blit(sc, (W // 2 - sc.get_width() // 2, H // 2 - 148))
 
@@ -927,7 +916,10 @@ class Game:
         sc = F_MED.render(f"Score: {self.score}   |   Level {self.level}", True, CLR["gold"])
         screen.blit(sc, (W // 2 - sc.get_width() // 2, 128))
 
-        msg = F_MED.render("Not in the top 10 — keep trying!", True, CLR["red"])
+        if self.leaderboard:
+            msg = F_MED.render("Not in the top 10 — keep trying!", True, CLR["red"])
+        else:
+            msg = F_MED.render("Score some points to get on the leaderboard!", True, CLR["red"])
         screen.blit(msg, (W // 2 - msg.get_width() // 2, 170))
 
         lb_lbl = F_SMALL.render("Current Top 10:", True, (190, 210, 190))
@@ -965,14 +957,14 @@ class Game:
 
         for i, entry in enumerate(self.leaderboard[:LEADERBOARD_SIZE]):
             ry     = start_y + row_h * (i + 1)
-            bg_col = medal_bg[i] if i < 3 else (CLR["lb_row_a"] if i % 2 == 0 else CLR["lb_row_b"])
+            bg_col = medal_bg[i] if i < 3 else (CLR["lb_row_a"] if (i - 3) % 2 == 0 else CLR["lb_row_b"])
             rs = pygame.Surface((col_w, row_h), pygame.SRCALPHA)
             rs.fill((*bg_col, 220))
             screen.blit(rs, (tx, ry))
             pygame.draw.rect(screen, (40, 80, 40), (tx, ry, col_w, row_h), 1)
 
             fc = medal_fc[i] if i < 3 else CLR["white"]
-            cy = ry + (row_h - font.render("#", True, fc).get_height()) // 2
+            cy = ry + (row_h - font.get_height()) // 2
             for text, x_off, color in [
                 (str(i + 1),                 14,          fc),
                 (entry.get("name", "?"),     70,          CLR["white"]),
@@ -981,18 +973,6 @@ class Game:
             ]:
                 s = font.render(text, True, color)
                 screen.blit(s, (tx + x_off, cy))
-
-    # ── Mini leaderboard ─────────────────────────────────────────────────────
-    def _draw_mini_leaderboard(self, start_y):
-        if not self.leaderboard:
-            return
-        lbl = F_TINY.render("Current top scores:", True, (160, 185, 160))
-        screen.blit(lbl, (W // 2 - lbl.get_width() // 2, start_y))
-        for i, entry in enumerate(self.leaderboard[:5]):
-            col = CLR["gold"] if i == 0 else CLR["white"]
-            txt = F_TINY.render(
-                f"{i+1}. {entry.get('name','?'):<5}  {entry['score']:>6}", True, col)
-            screen.blit(txt, (W // 2 - txt.get_width() // 2, start_y + 22 + i * 22))
 
     # ── Tree silhouettes (start screen cinematic layer) ───────────────────────
     def _draw_tree_silhouettes(self):
@@ -1034,9 +1014,7 @@ class Game:
         screen.blit(qi, (10 + 14 - qi.get_width() // 2, 10 + 14 - qi.get_height() // 2))
 
         if self.start_idle_t >= 5.0:
-            cp = pygame.Surface((250, 80), pygame.SRCALPHA)
-            cp.fill((0, 18, 0, 210))
-            screen.blit(cp, (44, 8))
+            screen.blit(self._ctrl_panel, (44, 8))
             for row, txt in enumerate([
                 "Arrow keys / A-D  — move",
                 "3 lives  |  45 s per level",
@@ -1067,9 +1045,11 @@ class Game:
         pygame.draw.rect(screen, cta_col,       (cta_x, cta_y, cta_w, cta_h), 2, border_radius=6)
         screen.blit(cta_txt, (cta_x + 22, cta_y + 9))
 
-        # TAB hint (bottom)
-        lb_hint = F_TINY.render("TAB — view leaderboard", True, (80, 110, 80))
-        screen.blit(lb_hint, (W // 2 - lb_hint.get_width() // 2, cta_y + cta_h + 10))
+        # TAB + close hints (bottom)
+        lb_hint   = F_TINY.render("TAB — view leaderboard", True, (80, 110, 80))
+        quit_hint = F_TINY.render("Close window to quit", True, (55, 75, 55))
+        screen.blit(lb_hint,   (W // 2 - lb_hint.get_width()   // 2, cta_y + cta_h + 10))
+        screen.blit(quit_hint, (W // 2 - quit_hint.get_width() // 2, cta_y + cta_h + 30))
 
     # ── Event handling ───────────────────────────────────────────────────────
     def handle_event(self, event):
@@ -1079,9 +1059,10 @@ class Game:
         # ── Name entry ────────────────────────────────────────────────────────
         if self.state == ST_NAME_ENTRY:
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                if self.name_input:
-                    self._submit_score(self.name_input)
-                    self.state = ST_LEADERBOARD
+                # CRIT-01: always submit — use "-----" if nothing typed
+                name = self.name_input if self.name_input else "-----"
+                self._submit_score(name)
+                self.state = ST_LEADERBOARD
             elif event.key == pygame.K_BACKSPACE:
                 self.name_input = self.name_input[:-1]
             elif event.key == pygame.K_ESCAPE:
@@ -1101,8 +1082,10 @@ class Game:
                 self._new_game()
                 self.state = ST_START             # paused    → home
             elif self.state == ST_START:
-                pass                              # home      → nothing (use Q to quit)
+                pass                              # ESC on home is a no-op — close window to quit
             else:
+                self._new_game()                  # reset stale game data
+                self.start_idle_t = 0.0           # restart idle timer for ? hint
                 self.state = ST_START             # anywhere  → home
             return
 
