@@ -24,6 +24,7 @@ from constants import (                       # jd-01: extracted constants
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
 from persistence import PersistenceManager    # jd-03: extracted persistence
+from particles import ParticleSystem           # jd-04: extracted particles
 
 # pygame is already initialized by constants.py import
 _fullscreen = True
@@ -511,7 +512,10 @@ class Game:
         self.obstacles   = []
         self.level_timer = 0.0
         self.spawn_timer = 0.0
-        self.particles   = []
+        if not hasattr(self, "particles"):
+            self.particles = ParticleSystem()  # jd-04: pooled particle system
+        else:
+            self.particles.clear()
         self.levelup_t   = 0.0
 
     def _new_game(self):
@@ -714,10 +718,7 @@ class Game:
         self.obstacles.append(cls(self.level, spawn_x=sx))
 
     def _pop(self, x, y, text, color):
-        self.particles.append({
-            "text": text, "x": float(x), "y": float(y),
-            "vy": int(-55 * SY), "t": 0.0, "dur": 1.1, "col": color,
-        })
+        self.particles.pop_text(x, y, text, color)   # jd-04: delegates to ParticleSystem
 
     # ── Update ───────────────────────────────────────────────────────────────
     def update(self, dt):
@@ -789,11 +790,8 @@ class Game:
 
         self.obstacles = [o for o in self.obstacles if o.alive]
 
-        # Float text
-        for p in self.particles:
-            p["t"] += dt
-            p["y"] += p["vy"] * dt
-        self.particles = [p for p in self.particles if p["t"] < p["dur"]]
+        # Update particles (jd-04: pooled system)
+        self.particles.update(dt)
 
         # Game over check
         if self.player.lives <= 0:
@@ -831,15 +829,7 @@ class Game:
         for obs in self.obstacles:
             obs.draw(screen)
         self.player.draw(screen)
-        for p in self.particles:
-            a = max(0.0, 1.0 - p["t"] / p["dur"])
-            if a < 0.02:
-                continue
-            if "_surf" not in p:
-                p["_surf"] = F_MED.render(p["text"], True, p["col"])
-            surf = p["_surf"]
-            surf.set_alpha(int(a * 255))
-            screen.blit(surf, (int(p["x"]) - surf.get_width() // 2, int(p["y"])))
+        self.particles.draw(screen)   # jd-04: batched particle rendering
         self._draw_hud()
 
     # ── HUD — Stone Tablet (bottom, Variant A) ───────────────────────────────
