@@ -13,6 +13,7 @@ from constants import (
     CLR,
     LEVEL_TIME, MAX_LIVES, STUN_SECS,
     MAX_NAME_LEN, LEADERBOARD_SIZE,
+    STREAK_TIERS,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
 from entities import pulse_color
@@ -203,8 +204,25 @@ def draw_game(screen, bg, obstacles, player, particles):
 # ─────────────────────────────────────────────────────────────────────────────
 #  HUD — Stone Tablet (bottom bar)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_hud(screen, cache, score, level, level_timer, player, is_levelup=False):
-    """Draw the bottom HUD bar with score, level, time, lives, and progress bar."""
+def _streak_tier_info(streak):
+    """Return (multiplier, label, color_key) for the current streak."""
+    result = STREAK_TIERS[0]
+    for tier in STREAK_TIERS:
+        if streak >= tier[0]:
+            result = tier
+    return result[1], result[2], result[3]
+
+
+# Badge pill colors keyed by tier label
+_BADGE_COLORS = {
+    "bronze": {"bg": (90, 60, 20),  "border": CLR["bronze"], "text": CLR["bronze"]},
+    "silver": {"bg": (60, 60, 70),  "border": CLR["silver"], "text": CLR["silver"]},
+    "gold":   {"bg": (80, 60,  0),  "border": CLR["gold"],   "text": CLR["gold"]},
+}
+
+
+def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False):
+    """Draw the bottom HUD bar with score, level, time, lives, streak badge, and progress bar."""
     ph  = int(72 * S)
     py  = H - ph
 
@@ -223,6 +241,35 @@ def draw_hud(screen, cache, score, level, level_timer, player, is_levelup=False)
     sc_val  = F_SERIF.render(str(score), True, CLR["gold"])
     screen.blit(sc_shad, (int(15 * SX), py + int(28 * S)))
     screen.blit(sc_val,  (int(14 * SX), py + int(27 * S)))
+
+    # STREAK BADGE (right of score) — only visible at tier ≥ 5 dodges
+    mult, tier_label, color_key = _streak_tier_info(streak)
+    if tier_label is not None and color_key in _BADGE_COLORS:
+        bc = _BADGE_COLORS[color_key]
+        badge_str = f"x{mult:g}  {streak}"
+        badge_surf = F_TINY.render(badge_str, True, bc["text"])
+        pad_x = int(8 * SX)
+        pad_y = int(3 * S)
+        bw = badge_surf.get_width() + pad_x * 2
+        bh = badge_surf.get_height() + pad_y * 2
+        # Position: right of score value
+        bx = sc_val.get_width() + int(24 * SX)
+        by = py + int(27 * S)
+        # Pulse effect for gold tier (3x)
+        if color_key == "gold":
+            t = pygame.time.get_ticks()
+            pulse = 0.85 + 0.15 * math.sin(t * 0.006)
+            bg_col = tuple(min(255, int(c * pulse)) for c in bc["bg"])
+            border_col = tuple(min(255, int(c * pulse)) for c in bc["border"])
+        else:
+            bg_col = bc["bg"]
+            border_col = bc["border"]
+        pill = pygame.Surface((bw, bh), pygame.SRCALPHA)
+        pill.fill((*bg_col, 220))
+        pygame.draw.rect(pill, border_col, (0, 0, bw, bh), max(1, int(2 * S)),
+                         border_radius=int(bh // 2))
+        screen.blit(pill, (bx, by))
+        screen.blit(badge_surf, (bx + pad_x, by + pad_y))
 
     # LEVEL (center-left)
     lv_lbl = F_TINY.render("LEVEL", True, CLR["olive"])

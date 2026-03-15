@@ -79,6 +79,15 @@ ROLL_DURATION    = 0.4        # total roll time in seconds
 ROLL_SPEED_MULT  = 2.5        # speed multiplier during roll
 ROLL_IFRAME      = 0.25       # i-frame duration at start of roll (seconds)
 ROLL_COOLDOWN    = 2.0        # cooldown between rolls (seconds)
+# ── Streak Combo ─────────────────────────────────────────────────────────────
+STREAK_TIERS = (
+    # (min_dodges, multiplier, label, color_key)
+    ( 0, 1.0, None,     None),       # 0–4:  no indicator
+    ( 5, 1.5, "bronze", "bronze"),    # 5–9:  bronze badge
+    (10, 2.0, "silver", "silver"),    # 10–19: silver badge
+    (20, 3.0, "gold",   "gold"),      # 20+:  gold badge
+)
+
 OBS_TYPES        = ["vine", "bomb", "spike", "boulder"]
 OBS_WEIGHTS      = [3, 2, 3, 2]
 MAX_NAME_LEN     = 5
