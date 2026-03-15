@@ -18,6 +18,7 @@ from constants import (
     OBS_TYPES, OBS_WEIGHTS,
     MAX_NAME_LEN,
     STREAK_TIERS,
+    WAVE_PHASES, CRESCENDO_SEPARATION,
 )
 from entities import Player, Vine, Bomb, Spike, Boulder
 from hud import (
@@ -255,6 +256,19 @@ class PlayState(State):
     def _spawn_rate(self):
         return max(MIN_SPAWN, BASE_SPAWN - (self.ctx.level - 1) * SPAWN_DEC)
 
+    @staticmethod
+    def _get_spawn_interval_modifier(level_t):
+        """Return spawn interval modifier based on wave phase at *level_t* seconds.
+
+        Returns (modifier: float, phase_name: str).
+        modifier < 1.0 means faster spawns (push), > 1.0 means slower (breather).
+        """
+        for start, end, name, mod in WAVE_PHASES:
+            if start <= level_t < end:
+                return mod, name
+        # After last defined phase (44-45s) or before 0 — use calm
+        return 1.0, "calm"
+
     def _spawn_x_near_player(self, margin):
         ctx = self.ctx
         radius = max(int(90 * SX), int(380 * SX) - (ctx.level - 1) * int(28 * SX))
@@ -278,6 +292,37 @@ class PlayState(State):
         sx = self._spawn_x_near_player(margins[kind])
         ctx.obstacles.append(cls(ctx.level, spawn_x=sx))
 
+    def _spawn_dual(self):
+        """Spawn two obstacles simultaneously with W*0.5 minimum separation (crescendo)."""
+        ctx = self.ctx
+        kind1 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
+        kind2 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
+        cls_map = {"vine": Vine, "bomb": Bomb, "spike": Spike, "boulder": Boulder}
+        margins = {
+            "vine":    int(50  * SX),
+            "bomb":    int(60  * SX),
+            "spike":   int(40  * SX),
+            "boulder": int(80  * SX),
+        }
+        # First obstacle
+        sx1 = self._spawn_x_near_player(margins[kind1])
+        ctx.obstacles.append(cls_map[kind1](ctx.level, spawn_x=sx1))
+        # Second obstacle with separation
+        min_sep = int(W * CRESCENDO_SEPARATION)
+        margin2 = margins[kind2]
+        # Try placing it at least min_sep away from sx1
+        if sx1 + min_sep <= W - margin2:
+            sx2 = random.randint(sx1 + min_sep, W - margin2)
+        elif sx1 - min_sep >= margin2:
+            sx2 = random.randint(margin2, sx1 - min_sep)
+        else:
+            # Fallback: just place on opposite side of screen
+            if sx1 < W // 2:
+                sx2 = random.randint(W // 2 + margin2, W - margin2)
+            else:
+                sx2 = random.randint(margin2, W // 2 - margin2)
+        ctx.obstacles.append(cls_map[kind2](ctx.level, spawn_x=sx2))
+
     def update(self, dt):
         ctx = self.ctx
 
@@ -293,11 +338,18 @@ class PlayState(State):
             self.mgr.swap(LevelUpState(self.mgr))
             return
 
-        # Spawn
+        # Wave rhythm — get current phase modifier
+        wave_mod, wave_phase = self._get_spawn_interval_modifier(ctx.level_timer)
+
+        # Spawn (apply wave modifier to interval)
         ctx.spawn_timer += dt
-        if ctx.spawn_timer >= self._spawn_rate():
+        modified_rate = self._spawn_rate() * wave_mod
+        if ctx.spawn_timer >= modified_rate:
             ctx.spawn_timer = 0.0
-            self._spawn()
+            if wave_phase == "crescendo":
+                self._spawn_dual()
+            else:
+                self._spawn()
 
         # Hit detection FIRST (BUG-01/02)
         for obs in ctx.obstacles:

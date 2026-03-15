@@ -88,6 +88,20 @@ STREAK_TIERS = (
     (20, 3.0, "gold",   "gold"),      # 20+:  gold badge
 )
 
+# ── Wave Rhythm Phases ───────────────────────────────────────────────────────
+# Each phase: (start_time, end_time, name, spawn_interval_modifier)
+# modifier < 1.0 = faster spawns (push), > 1.0 = slower spawns (breather)
+WAVE_PHASES = (
+    ( 0, 15, "calm",      1.0),
+    (15, 23, "push",      0.75),   # -25% interval
+    (23, 27, "breather",  1.40),   # +40% interval
+    (27, 35, "push",      0.70),   # -30% interval
+    (35, 39, "breather",  1.0),    # standard
+    (39, 44, "crescendo", 0.50),   # max rate + dual spawns
+)
+# Crescendo dual-spawn minimum separation (fraction of W)
+CRESCENDO_SEPARATION = 0.5
+
 OBS_TYPES        = ["vine", "bomb", "spike", "boulder"]
 OBS_WEIGHTS      = [3, 2, 3, 2]
 MAX_NAME_LEN     = 5

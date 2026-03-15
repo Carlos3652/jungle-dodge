@@ -14,6 +14,7 @@ from constants import (
     LEVEL_TIME, MAX_LIVES, STUN_SECS,
     MAX_NAME_LEN, LEADERBOARD_SIZE,
     STREAK_TIERS,
+    WAVE_PHASES,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
 from entities import pulse_color
@@ -221,8 +222,91 @@ _BADGE_COLORS = {
 }
 
 
+# ── Wave phase bar colors ────────────────────────────────────────────────────
+_WAVE_PHASE_COLORS = {
+    "calm":      (60, 120,  60),   # muted green — standard
+    "push":      (200,  80,  40),  # fiery orange — danger
+    "breather":  (60, 140, 180),   # cool blue — relief
+    "crescendo": (220,  40,  40),  # intense red — max threat
+}
+
+_WAVE_PHASE_LABELS = {
+    "calm":      "CALM",
+    "push":      "PUSH",
+    "breather":  "BREATHER",
+    "crescendo": "CRESCENDO",
+}
+
+
+def _get_wave_phase(level_t):
+    """Return (phase_name, phase_progress 0-1) for level_t seconds."""
+    for start, end, name, _mod in WAVE_PHASES:
+        if start <= level_t < end:
+            progress = (level_t - start) / (end - start)
+            return name, progress
+    return "calm", 1.0
+
+
+def draw_wave_phase_bar(screen, level_timer):
+    """Draw the wave phase bar (full width, 12px above HUD panels)."""
+    ph = int(72 * S)
+    bar_h = int(12 * S)
+    bar_y = H - ph - bar_h - int(4 * S)  # 4px gap above HUD panel
+
+    phase_name, phase_progress = _get_wave_phase(level_timer)
+    color = _WAVE_PHASE_COLORS.get(phase_name, (60, 120, 60))
+
+    # Background (dark)
+    pygame.draw.rect(screen, (20, 20, 20), (0, bar_y, W, bar_h))
+
+    # Phase segments — show all phases as subdivisions
+    total_time = LEVEL_TIME
+    for start, end, name, _mod in WAVE_PHASES:
+        seg_x = int(W * start / total_time)
+        seg_w = int(W * (end - start) / total_time)
+        seg_color = _WAVE_PHASE_COLORS.get(name, (60, 120, 60))
+
+        # Dim the segments that haven't been reached yet
+        if level_timer >= end:
+            # Fully passed — draw at full brightness
+            pygame.draw.rect(screen, seg_color, (seg_x, bar_y, seg_w, bar_h))
+        elif level_timer >= start:
+            # Currently in this phase — fill proportionally
+            fill_w = int(seg_w * phase_progress)
+            # Dim background for unfilled portion
+            dim = tuple(c // 4 for c in seg_color)
+            pygame.draw.rect(screen, dim, (seg_x, bar_y, seg_w, bar_h))
+            if fill_w > 0:
+                pygame.draw.rect(screen, seg_color, (seg_x, bar_y, fill_w, bar_h))
+        else:
+            # Future phase — very dim
+            dim = tuple(c // 6 for c in seg_color)
+            pygame.draw.rect(screen, dim, (seg_x, bar_y, seg_w, bar_h))
+
+    # Phase divider lines
+    for start, end, name, _mod in WAVE_PHASES:
+        div_x = int(W * start / total_time)
+        if div_x > 0:
+            pygame.draw.line(screen, (40, 40, 40), (div_x, bar_y), (div_x, bar_y + bar_h), 1)
+
+    # Phase label (centered on current phase segment)
+    label = _WAVE_PHASE_LABELS.get(phase_name, "")
+    if label:
+        for start, end, name, _mod in WAVE_PHASES:
+            if name == phase_name and start <= level_timer < end:
+                seg_cx = int(W * (start + end) / 2 / total_time)
+                lbl_surf = F_TINY.render(label, True, CLR["white"])
+                lbl_x = seg_cx - lbl_surf.get_width() // 2
+                lbl_y = bar_y + (bar_h - lbl_surf.get_height()) // 2
+                screen.blit(lbl_surf, (lbl_x, lbl_y))
+                break
+
+    # Outer border
+    pygame.draw.rect(screen, (80, 80, 80), (0, bar_y, W, bar_h), 1)
+
+
 def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False):
-    """Draw the bottom HUD bar with score, level, time, lives, streak badge, and progress bar."""
+    """Draw the bottom HUD bar with score, level, time, lives, streak badge, wave phase bar, and progress bar."""
     ph  = int(72 * S)
     py  = H - ph
 
@@ -334,6 +418,10 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
                                  (lx + leaf_s, bar_y + bar_h // 2),
                                  (lx - leaf_s, bar_y + bar_h)])
         pygame.draw.rect(screen, CLR["vine_dk"], (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
+
+    # Wave phase bar (above HUD panel, only during gameplay)
+    if not is_levelup:
+        draw_wave_phase_bar(screen, level_timer)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
