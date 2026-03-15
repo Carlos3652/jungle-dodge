@@ -1129,7 +1129,7 @@ class Game:
         self._draw_lb_table(int(95 * S), full=True)
 
         # CTA in gold (consistent with start screen)
-        cta = F_MED.render("SPACE to play again  |  ESC to home", True,
+        cta = F_MED.render("SPACE to play again  |  TAB / ESC to home", True,
                            pulse_color(CLR["gold"], t))
         screen.blit(cta, (W // 2 - cta.get_width() // 2, H - int(48 * S)))
 
@@ -1358,9 +1358,12 @@ class Game:
                 self._new_game()
                 self.state = ST_PLAYING
 
-        # ── TAB — leaderboard from start ──────────────────────────────────────
-        if event.key == pygame.K_TAB and self.state == ST_START:
-            self.state = ST_LEADERBOARD
+        # ── TAB — toggle between start and leaderboard ────────────────────────
+        if event.key == pygame.K_TAB:
+            if self.state == ST_START:
+                self.state = ST_LEADERBOARD
+            elif self.state == ST_LEADERBOARD:
+                self.state = ST_START
 
         # ── ENTER — back to start from leaderboard ────────────────────────────
         if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.state == ST_LEADERBOARD:
