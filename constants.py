@@ -73,6 +73,12 @@ BASE_SPAWN       = 1.5
 SPAWN_DEC        = 0.12
 MIN_SPAWN        = 0.35
 SPEED_SCALE      = 0.25
+
+# ── Roll ──────────────────────────────────────────────────────────────────────
+ROLL_DURATION    = 0.4        # total roll time in seconds
+ROLL_SPEED_MULT  = 2.5        # speed multiplier during roll
+ROLL_IFRAME      = 0.25       # i-frame duration at start of roll (seconds)
+ROLL_COOLDOWN    = 2.0        # cooldown between rolls (seconds)
 OBS_TYPES        = ["vine", "bomb", "spike", "boulder"]
 OBS_WEIGHTS      = [3, 2, 3, 2]
 MAX_NAME_LEN     = 5

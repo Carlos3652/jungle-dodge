@@ -13,6 +13,7 @@ from constants import (
     CLR,
     MAX_LIVES, STUN_SECS, IMMUNE_EXTRA,
     PLAYER_SPD, SPEED_SCALE,
+    ROLL_DURATION, ROLL_SPEED_MULT, ROLL_IFRAME, ROLL_COOLDOWN,
 )
 
 
@@ -41,6 +42,12 @@ class Player:
         self.walk_t   = 0.0
         self.facing   = 1
 
+        # Roll state
+        self.rolling  = False        # currently in a roll?
+        self.roll_t   = 0.0          # remaining roll time
+        self.roll_cd  = 0.0          # cooldown timer (counts down to 0)
+        self.roll_dir = 1            # direction locked at roll start
+
     @property
     def rect(self):
         return pygame.Rect(self.x - self.PW // 2, self.y, self.PW, self.PH)
@@ -51,6 +58,19 @@ class Player:
     def is_hit_immune(self):
         """True during stun AND brief grace period after (CRIT-03)."""
         return self.immune_t > 0
+
+    def can_roll(self):
+        """True if the player can start a new roll (not rolling, cooldown ready, not stunned)."""
+        return not self.rolling and self.roll_cd <= 0 and not self.is_stunned()
+
+    def start_roll(self):
+        """Begin a roll in the current facing direction. Grants i-frames."""
+        if not self.can_roll():
+            return
+        self.rolling  = True
+        self.roll_t   = ROLL_DURATION
+        self.roll_dir = self.facing
+        self.immune_t = max(self.immune_t, ROLL_IFRAME)   # grant i-frames
 
     def hit(self):
         if self.is_hit_immune():
@@ -65,15 +85,29 @@ class Player:
         ml = keys[pygame.K_LEFT]  or keys[pygame.K_a]
         mr = keys[pygame.K_RIGHT] or keys[pygame.K_d]
         dx = 0.0
-        if ml and not mr:
-            dx = -PLAYER_SPD * dt   # dt-scaled (BUG-07)
-            self.facing = -1
-        elif mr and not ml:
-            dx =  PLAYER_SPD * dt
-            self.facing =  1
+
+        if self.rolling:
+            # During roll: locked direction at 2.5x speed
+            dx = self.roll_dir * PLAYER_SPD * ROLL_SPEED_MULT * dt
+            self.roll_t -= dt
+            if self.roll_t <= 0:
+                self.rolling = False
+                self.roll_t  = 0.0
+                self.roll_cd = ROLL_COOLDOWN   # start cooldown
+        else:
+            if ml and not mr:
+                dx = -PLAYER_SPD * dt   # dt-scaled (BUG-07)
+                self.facing = -1
+            elif mr and not ml:
+                dx =  PLAYER_SPD * dt
+                self.facing =  1
 
         self.walk_t = (self.walk_t + dt * 8) if dx != 0 else 0.0
         self.x = max(self.PW // 2, min(W - self.PW // 2, self.x + dx))
+
+        # Cooldown tick
+        if self.roll_cd > 0:
+            self.roll_cd = max(0.0, self.roll_cd - dt)
 
         if self.stun_t > 0:
             self.stun_t  = max(0.0, self.stun_t - dt)
@@ -81,13 +115,77 @@ class Player:
         if self.immune_t > 0:
             self.immune_t = max(0.0, self.immune_t - dt)
 
-    def draw(self, surf):
+    def draw(self, surf, particles=None):
         stunned = self.is_stunned()
         if stunned and int(self.flash_t) % 2 == 1:
             return
 
-        cx   = self.x
-        boty = self.y + self.PH
+        # ── Roll cooldown arc (radial recharge indicator under player) ──
+        if self.roll_cd > 0:
+            arc_r = int(24 * S)
+            arc_cx, arc_cy = int(self.x), int(self.y + self.PH + int(8 * S))
+            progress = 1.0 - (self.roll_cd / ROLL_COOLDOWN)
+            sweep = progress * 2 * math.pi
+            if sweep > 0.01:
+                arc_rect = pygame.Rect(arc_cx - arc_r, arc_cy - arc_r, arc_r * 2, arc_r * 2)
+                start_angle = math.pi / 2  # 12 o'clock
+                pygame.draw.arc(surf, CLR["teal"], arc_rect,
+                                start_angle, start_angle + sweep, max(1, int(3 * S)))
+
+        # ── Roll animation: draw to temp surface with tilt + Y-scale ──
+        if self.rolling:
+            # Emit trail particles
+            if particles is not None:
+                trail_col = (180, 220, 255)
+                for _ in range(2):
+                    px = self.x - self.roll_dir * int(15 * S) + random.uniform(-5, 5) * S
+                    py = self.y + self.PH * 0.6 + random.uniform(-5, 5) * S
+                    particles.emit(
+                        px, py,
+                        count=1,
+                        vx=-self.roll_dir * random.uniform(20, 60) * S,
+                        vy=random.uniform(-30, 30) * S,
+                        size=random.uniform(3, 6) * S,
+                        color=trail_col,
+                        lifetime=0.2,
+                    )
+
+            # Render character to temp surface, then rotate/scale and blit
+            char_w = self.PW + int(40 * S)
+            char_h = self.PH + int(40 * S)
+            tmp = pygame.Surface((char_w, char_h), pygame.SRCALPHA)
+            self._draw_character(tmp, char_w // 2, int(20 * S), stunned)
+            # 45-degree tilt in roll direction
+            angle = -45 * self.roll_dir
+            # Y-scale 0.85
+            scaled_h = int(char_h * 0.85)
+            if scaled_h > 0:
+                tmp = pygame.transform.scale(tmp, (char_w, scaled_h))
+            tmp = pygame.transform.rotate(tmp, angle)
+            blit_x = int(self.x) - tmp.get_width() // 2
+            blit_y = int(self.y + self.PH // 2) - tmp.get_height() // 2
+            surf.blit(tmp, (blit_x, blit_y))
+            return
+
+        # ── Normal draw ──
+        self._draw_character(surf, self.x, self.y, stunned)
+
+        # Stun stars
+        if stunned:
+            cx = self.x
+            o4 = int(4 * S)
+            o9 = int(9 * S)
+            o2 = int(2 * S)
+            for i in range(3):
+                angle = self.flash_t + i * (2 * math.pi / 3)
+                sx = cx + int(int(22 * S) * math.cos(angle))
+                sy = self.y - o4 + int(o9 * math.sin(angle))
+                pygame.draw.circle(surf, CLR["yellow"], (sx, sy), o4)
+                pygame.draw.circle(surf, CLR["white"],  (sx, sy), o2)
+
+    def _draw_character(self, surf, cx, top_y, stunned=False):
+        """Draw the explorer character at the given center-x and top-y."""
+        boty = top_y + self.PH
         sw   = math.sin(self.walk_t) * int(9 * S) if self.walk_t else 0
 
         o5  = int(5  * S)
@@ -111,23 +209,23 @@ class Player:
         # Legs
         lleg = (cx - o5 + int(sw), boty)
         rleg = (cx + o5 - int(sw), boty)
-        pygame.draw.line(surf, CLR["pants"], (cx - o5, self.y + o36), lleg, max(1, int(5 * S)))
-        pygame.draw.line(surf, CLR["pants"], (cx + o5, self.y + o36), rleg, max(1, int(5 * S)))
+        pygame.draw.line(surf, CLR["pants"], (cx - o5, top_y + o36), lleg, max(1, int(5 * S)))
+        pygame.draw.line(surf, CLR["pants"], (cx + o5, top_y + o36), rleg, max(1, int(5 * S)))
         pygame.draw.circle(surf, (50, 35, 20), lleg, o4)
         pygame.draw.circle(surf, (50, 35, 20), rleg, o4)
 
         # Arms
         aw = math.sin(self.walk_t + math.pi) * o7 if self.walk_t else 0
-        ay = self.y + o22
+        ay = top_y + o22
         pygame.draw.line(surf, CLR["shirt"], (cx - o12, ay), (cx - o20, ay + o14 + int(aw)), max(1, int(4 * S)))
         pygame.draw.line(surf, CLR["shirt"], (cx + o12, ay), (cx + o20, ay + o14 - int(aw)), max(1, int(4 * S)))
 
         # Body
         bcol = CLR["shirt"] if not stunned else (255, 255, 100)
-        pygame.draw.rect(surf, bcol, (cx - o13, self.y + o16, o26, o22), border_radius=o4)
+        pygame.draw.rect(surf, bcol, (cx - o13, top_y + o16, o26, o22), border_radius=o4)
 
         # Head
-        hcy  = self.y + o10
+        hcy  = top_y + o10
         hcol = CLR["skin"] if not stunned else (255, 230, 150)
         pygame.draw.circle(surf, hcol, (cx, hcy), o12)
         pygame.draw.circle(surf, (30, 20, 10), (cx + o4 * self.facing, hcy), o2)
@@ -137,15 +235,6 @@ class Player:
         pygame.draw.ellipse(surf, hcol2, (cx - o17, hcy - o5, int(34 * S), o9))
         pygame.draw.rect(surf,   hcol2, (cx - o9, hcy - o17, o18, o13), border_radius=o3)
         pygame.draw.rect(surf, (100, 70, 30), (cx - o9, hcy - int(6 * S), o18, o3))
-
-        # Stun stars
-        if stunned:
-            for i in range(3):
-                angle = self.flash_t + i * (2 * math.pi / 3)
-                sx = cx + int(int(22 * S) * math.cos(angle))
-                sy = self.y - o4 + int(o9 * math.sin(angle))
-                pygame.draw.circle(surf, CLR["yellow"], (sx, sy), o4)
-                pygame.draw.circle(surf, CLR["white"],  (sx, sy), o2)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

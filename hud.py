@@ -196,7 +196,7 @@ def draw_game(screen, bg, obstacles, player, particles):
     screen.blit(bg, (0, 0))
     for obs in obstacles:
         obs.draw(screen)
-    player.draw(screen)
+    player.draw(screen, particles)
     particles.draw(screen)
 
 

@@ -320,6 +320,8 @@ class PlayState(State):
             self.ctx.toggle_fullscreen()
         elif event.key == pygame.K_ESCAPE:
             self.mgr.swap(PauseState(self.mgr))
+        elif event.key == pygame.K_SPACE:
+            self.ctx.player.start_roll()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
