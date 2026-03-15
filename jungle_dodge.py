@@ -23,6 +23,7 @@ from constants import (                       # jd-01: extracted constants
     ST_GAMEOVER, ST_NAME_ENTRY, ST_LEADERBOARD,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
+from persistence import PersistenceManager    # jd-03: extracted persistence
 
 # pygame is already initialized by constants.py import
 _fullscreen = True
@@ -468,7 +469,8 @@ class Game:
         self.bg          = self._build_bg()
         self.score       = 0
         self.level       = 1
-        self.leaderboard = self._load_leaderboard()
+        self._persist     = PersistenceManager()        # jd-03
+        self.leaderboard  = self._persist.get_board("normal")
         self.name_input      = ""
         self.cursor_t        = 0.0
         self.cursor_on       = True
@@ -496,38 +498,13 @@ class Game:
         self._reset_level()
         self.player          = Player()
 
-    # ── Leaderboard ──────────────────────────────────────────────────────────
-    def _load_leaderboard(self):
-        try:
-            with open(LB_FILE, "r") as f:
-                data = json.load(f)
-            return sorted(data, key=lambda e: e["score"], reverse=True)[:LEADERBOARD_SIZE]
-        except Exception:
-            return []
-
-    def _save_leaderboard(self):
-        try:
-            with open(LB_FILE, "w") as f:
-                json.dump(self.leaderboard, f, indent=2)
-        except Exception:
-            pass
-
+    # ── Leaderboard (delegates to PersistenceManager — jd-03) ───────────────
     def _is_top10(self, score):
-        if score <= 0:
-            return False
-        if len(self.leaderboard) < LEADERBOARD_SIZE:
-            return True
-        return score > self.leaderboard[-1]["score"]
+        return self._persist.is_top_score(score, "normal")
 
     def _submit_score(self, name):
-        self.leaderboard.append({
-            "name": name.upper() or "-----",
-            "score": self.score,
-            "level": self.level,
-        })
-        self.leaderboard.sort(key=lambda e: e["score"], reverse=True)
-        self.leaderboard = self.leaderboard[:LEADERBOARD_SIZE]
-        self._save_leaderboard()
+        self._persist.submit_score(name, self.score, self.level)
+        self.leaderboard = self._persist.get_board("normal")
 
     # ── Init helpers ─────────────────────────────────────────────────────────
     def _reset_level(self):
