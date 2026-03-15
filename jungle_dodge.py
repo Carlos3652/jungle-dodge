@@ -10,21 +10,29 @@ import sys
 import json
 import os
 
-pygame.init()
-pygame.font.init()
+from constants import (                       # jd-01: extracted constants
+    W, H, SX, SY, S, FPS,
+    GROUND_Y, PLAYER_FLOOR,
+    CLR,
+    LEVEL_TIME, MAX_LIVES, STUN_SECS, IMMUNE_EXTRA,
+    PLAYER_SPD, DODGE_PTS,
+    BASE_SPAWN, SPAWN_DEC, MIN_SPAWN, SPEED_SCALE,
+    OBS_TYPES, OBS_WEIGHTS,
+    MAX_NAME_LEN, LEADERBOARD_SIZE, LB_FILE,
+    ST_START, ST_PLAYING, ST_PAUSED, ST_LEVELUP,
+    ST_GAMEOVER, ST_NAME_ENTRY, ST_LEADERBOARD,
+    F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
+)
+from persistence import PersistenceManager    # jd-03: extracted persistence
+from particles import ParticleSystem           # jd-04: extracted particles
 
-# ── Window ────────────────────────────────────────────────────────────────────
-W, H   = 3840, 2160
-SX     = W / 900          # horizontal scale  (≈ 4.267)
-SY     = H / 600          # vertical scale    (= 3.6)
-S      = SY               # uniform size scale (use vertical as reference)
+# pygame is already initialized by constants.py import
 _fullscreen = True
 _display = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
 screen   = pygame.Surface((W, H))   # all game drawing targets this surface
 pygame.display.set_caption("Jungle Dodge")
 pygame.mouse.set_visible(False)
 clock  = pygame.time.Clock()
-FPS    = 60
 
 def _toggle_fullscreen():
     global _fullscreen, _display
@@ -44,93 +52,6 @@ def _present():
     else:
         pygame.transform.scale(screen, (dw, dh), _display)
     pygame.display.flip()
-
-# ── Layout ────────────────────────────────────────────────────────────────────
-GROUND_Y     = H - int(90 * S)   # 2160 - 324 = 1836
-PLAYER_FLOOR = GROUND_Y
-
-# ── Palette ───────────────────────────────────────────────────────────────────
-CLR = {
-    # ── Palette B — Ancient Temple (env + UI) ─────────────────────────────────
-    "sky_top"    : (  6,  14,   8),
-    "sky_bot"    : ( 14,  30,  12),
-    "ground"     : ( 60,  40,  20),
-    "grass"      : ( 44,  92,  32),
-    "white"      : (255, 255, 255),
-    "black"      : (  0,   0,   0),
-    "red"        : (220,  50,  50),
-    "yellow"     : (255, 210,  30),
-    "orange"     : (255, 140,   0),
-    "gold"       : (212, 160,  32),   # ancient gold
-    "heart"      : (140,  26,  26),
-    "heart_empty": ( 40,  10,  10),
-    "teal"       : (  0, 200, 160),   # stun bar
-    "skin"       : (220, 180, 130),
-    "shirt"      : (200, 170, 100),
-    "pants"      : ( 80,  60,  40),
-    "hat"        : (140, 100,  50),
-    "lb_bg"      : ( 10,  25,  10),
-    "lb_row_a"   : ( 18,  45,  18),
-    "lb_row_b"   : ( 12,  32,  12),
-    "silver"     : (192, 192, 192),
-    "bronze"     : (205, 127,  50),
-    # HUD stone panel
-    "stone"      : ( 42,  46,  38),
-    "stone_hi"   : ( 62,  68,  56),
-    "olive"      : (120, 130,  90),   # HUD muted label colour
-    # ── Palette A — Neon Jungle (obstacles only) ──────────────────────────────
-    "vine"       : ( 38, 212,  72),   # neon green
-    "vine_dk"    : ( 15, 110,  35),
-    "lb_border"  : ( 38, 212,  72),   # matches vine
-    "bomb"       : ( 25,  25,  25),
-    "fuse"       : (255,  90,  20),   # neon orange fuse/explosion
-    "spark"      : (255, 200,  50),
-    "spike"      : (200,  70, 255),   # electric purple
-    "spike_dk"   : (130,  35, 180),
-    "boulder"    : (140, 115,  85),
-    "boulder_dk" : (100,  80,  60),
-}
-
-# ── Game Constants ─────────────────────────────────────────────────────────────
-LEVEL_TIME       = 45       # seconds per level
-MAX_LIVES        = 3
-STUN_SECS        = 3.0
-IMMUNE_EXTRA     = 0.15     # grace period after stun visual ends (CRIT-03)
-PLAYER_SPD       = int(360 * SX)   # pixels/second (dt-scaled)
-DODGE_PTS        = 10
-BASE_SPAWN       = 1.5
-SPAWN_DEC        = 0.12
-MIN_SPAWN        = 0.35
-SPEED_SCALE      = 0.25
-OBS_TYPES        = ["vine", "bomb", "spike", "boulder"]
-OBS_WEIGHTS      = [3, 2, 3, 2]
-MAX_NAME_LEN     = 5
-LEADERBOARD_SIZE = 10
-LB_FILE          = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaderboard.json")
-
-# ── States ─────────────────────────────────────────────────────────────────────
-ST_START       = "start"
-ST_PLAYING     = "playing"
-ST_PAUSED      = "paused"
-ST_LEVELUP     = "levelup"
-ST_GAMEOVER    = "gameover"
-ST_NAME_ENTRY  = "name_entry"
-ST_LEADERBOARD = "leaderboard"
-
-# ── Fonts ──────────────────────────────────────────────────────────────────────
-def _font(name, size, bold=False):
-    try:
-        return pygame.font.SysFont(name, size, bold=bold)
-    except Exception:
-        return pygame.font.Font(None, size)
-
-F_HUGE  = _font("Impact",          int(90 * S))
-F_LARGE = _font("Impact",          int(54 * S))
-F_MED   = _font("Arial",           int(30 * S), bold=True)
-F_SMALL = _font("Arial",           int(22 * S))
-F_TINY  = _font("Arial",           int(17 * S))
-F_SERIF = _font("Times New Roman", int(28 * S), bold=True)   # Stone Tablet HUD values
-F_SKULL = _font("Segoe UI Symbol", int(24 * S))               # Skull life icons ☠
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -549,7 +470,8 @@ class Game:
         self.bg          = self._build_bg()
         self.score       = 0
         self.level       = 1
-        self.leaderboard = self._load_leaderboard()
+        self._persist     = PersistenceManager()        # jd-03
+        self.leaderboard  = self._persist.get_board("normal")
         self.name_input      = ""
         self.cursor_t        = 0.0
         self.cursor_on       = True
@@ -577,45 +499,23 @@ class Game:
         self._reset_level()
         self.player          = Player()
 
-    # ── Leaderboard ──────────────────────────────────────────────────────────
-    def _load_leaderboard(self):
-        try:
-            with open(LB_FILE, "r") as f:
-                data = json.load(f)
-            return sorted(data, key=lambda e: e["score"], reverse=True)[:LEADERBOARD_SIZE]
-        except Exception:
-            return []
-
-    def _save_leaderboard(self):
-        try:
-            with open(LB_FILE, "w") as f:
-                json.dump(self.leaderboard, f, indent=2)
-        except Exception:
-            pass
-
+    # ── Leaderboard (delegates to PersistenceManager — jd-03) ───────────────
     def _is_top10(self, score):
-        if score <= 0:
-            return False
-        if len(self.leaderboard) < LEADERBOARD_SIZE:
-            return True
-        return score > self.leaderboard[-1]["score"]
+        return self._persist.is_top_score(score, "normal")
 
     def _submit_score(self, name):
-        self.leaderboard.append({
-            "name": name.upper() or "-----",
-            "score": self.score,
-            "level": self.level,
-        })
-        self.leaderboard.sort(key=lambda e: e["score"], reverse=True)
-        self.leaderboard = self.leaderboard[:LEADERBOARD_SIZE]
-        self._save_leaderboard()
+        self._persist.submit_score(name, self.score, self.level)
+        self.leaderboard = self._persist.get_board("normal")
 
     # ── Init helpers ─────────────────────────────────────────────────────────
     def _reset_level(self):
         self.obstacles   = []
         self.level_timer = 0.0
         self.spawn_timer = 0.0
-        self.particles   = []
+        if not hasattr(self, "particles"):
+            self.particles = ParticleSystem()  # jd-04: pooled particle system
+        else:
+            self.particles.clear()
         self.levelup_t   = 0.0
 
     def _new_game(self):
@@ -818,10 +718,7 @@ class Game:
         self.obstacles.append(cls(self.level, spawn_x=sx))
 
     def _pop(self, x, y, text, color):
-        self.particles.append({
-            "text": text, "x": float(x), "y": float(y),
-            "vy": int(-55 * SY), "t": 0.0, "dur": 1.1, "col": color,
-        })
+        self.particles.pop_text(x, y, text, color)   # jd-04: delegates to ParticleSystem
 
     # ── Update ───────────────────────────────────────────────────────────────
     def update(self, dt):
@@ -893,11 +790,8 @@ class Game:
 
         self.obstacles = [o for o in self.obstacles if o.alive]
 
-        # Float text
-        for p in self.particles:
-            p["t"] += dt
-            p["y"] += p["vy"] * dt
-        self.particles = [p for p in self.particles if p["t"] < p["dur"]]
+        # Update particles (jd-04: pooled system)
+        self.particles.update(dt)
 
         # Game over check
         if self.player.lives <= 0:
@@ -935,15 +829,7 @@ class Game:
         for obs in self.obstacles:
             obs.draw(screen)
         self.player.draw(screen)
-        for p in self.particles:
-            a = max(0.0, 1.0 - p["t"] / p["dur"])
-            if a < 0.02:
-                continue
-            if "_surf" not in p:
-                p["_surf"] = F_MED.render(p["text"], True, p["col"])
-            surf = p["_surf"]
-            surf.set_alpha(int(a * 255))
-            screen.blit(surf, (int(p["x"]) - surf.get_width() // 2, int(p["y"])))
+        self.particles.draw(screen)   # jd-04: batched particle rendering
         self._draw_hud()
 
     # ── HUD — Stone Tablet (bottom, Variant A) ───────────────────────────────
