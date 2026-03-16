@@ -70,7 +70,7 @@ import importlib.util, os
 
 _spec = importlib.util.spec_from_file_location(
     "jungle_dodge",
-    os.path.join(os.path.dirname(__file__), "jungle_dodge.py"),
+    os.path.join(os.path.dirname(__file__), "_jungle_dodge_old.py"),
     submodule_search_locations=[],
 )
 # We don't exec the module (too many side effects).  Instead we test a
@@ -99,7 +99,7 @@ class _FakeGame:
 
 def _read_handle_event():
     """Return the real handle_event source to compile it in isolation."""
-    src_path = os.path.join(os.path.dirname(__file__), "jungle_dodge.py")
+    src_path = os.path.join(os.path.dirname(__file__), "_jungle_dodge_old.py")
     with open(src_path) as f:
         source = f.read()
 
