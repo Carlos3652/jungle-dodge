@@ -282,10 +282,35 @@ class PlayState(State):
 
         if event.key == pygame.K_ESCAPE:
             ctx.manager.push(PauseState())
+            return
+
+        if event.key == pygame.K_SPACE:
+            ctx.player.start_roll()
 
     def update(self, ctx, dt):
         keys = pygame.key.get_pressed()
         ctx.player.update(dt, keys)
+
+        # ── Roll trail particles ────────────────────────────────────────────
+        if ctx.player.rolling:
+            # Emit small trail particles behind the player during roll
+            trail_x = ctx.player.x - ctx.player.roll_dir * int(16 * SX)
+            trail_y = ctx.player.y + ctx.player.PH // 2
+            ctx.particles.emit(
+                trail_x, trail_y,
+                count=2,
+                color=CLR["teal"],
+                lifetime=0.25,
+                speed_range=(40 * SX, 120 * SX),
+                spread=math.pi,
+                gravity=0.0,
+                drag=3.0,
+                size=float(int(5 * S)),
+                size_end=0.0,
+                alpha=180.0,
+                alpha_end=0.0,
+                shape="circle",
+            )
 
         ctx.level_timer += dt
         if ctx.level_timer >= LEVEL_TIME:
@@ -305,7 +330,7 @@ class PlayState(State):
                 obs.did_hit = True
                 ctx.player.hit()
                 ctx.particles.pop_text(ctx.player.x, ctx.player.y - int(10 * S),
-                                       "OUCH!", CLR["red"])
+                                       "OUCH!", CLR["red"], "hit_text")
                 break
 
         # Update obstacles
