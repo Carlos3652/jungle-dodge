@@ -2,6 +2,7 @@
 HUD and screen-drawing functions extracted from jungle_dodge.py (task jd-06b).
 
 Each function receives the target surface and relevant state data as arguments.
+pulse_color is defined here as a visual helper used by draw functions.
 """
 
 import math
@@ -14,7 +15,6 @@ from constants import (
     CLR,
     LEVEL_TIME, MAX_LIVES, STUN_SECS,
     MAX_NAME_LEN, LEADERBOARD_SIZE,
-    ST_LEVELUP,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
 
@@ -27,6 +27,7 @@ def pulse_color(base_col, ticks, speed=0.004, lo=0.65):
 
 # ── Cached overlay surfaces (lazy-init to support test mocking) ───────────────
 _surfaces_ready = False
+_ov_start    = None
 _ov_levelup  = None
 _ov_pause    = None
 _ov_lb       = None
@@ -39,11 +40,14 @@ _slot_empty  = None
 
 def _ensure_surfaces():
     """Allocate cached surfaces on first use (not at import time)."""
-    global _surfaces_ready, _ov_levelup, _ov_pause, _ov_lb, _ov_gameover
-    global _hud_panel, _ctrl_panel, _slot_filled, _slot_empty
+    global _surfaces_ready, _ov_start, _ov_levelup, _ov_pause, _ov_lb
+    global _ov_gameover, _hud_panel, _ctrl_panel, _slot_filled, _slot_empty
     if _surfaces_ready:
         return
     _surfaces_ready = True
+
+    _ov_start = pygame.Surface((W, H), pygame.SRCALPHA)
+    _ov_start.fill((0, 6, 0, 210))
 
     _ov_levelup = pygame.Surface((W, H), pygame.SRCALPHA)
     _ov_levelup.fill((0, 30, 5, 165))
@@ -227,7 +231,7 @@ def draw_tree_silhouettes(screen):
 # ─────────────────────────────────────────────────────────────────────────────
 #  HUD — Stone Tablet (bottom, Variant A)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_hud(screen, score, level, level_timer, player, state):
+def draw_hud(screen, score, level, level_timer, player, is_levelup=False):
     _ensure_surfaces()
     ph  = int(72 * S)
     py  = H - ph
@@ -294,7 +298,7 @@ def draw_hud(screen, score, level, level_timer, player, state):
         st = F_TINY.render("STUNNED", True, CLR["teal"])
         screen.blit(st, (W // 2 - st.get_width() // 2, bar_y - int(16 * S)))
     else:
-        prog   = 0.0 if state == ST_LEVELUP else min(1.0, level_timer / LEVEL_TIME)
+        prog   = 0.0 if is_levelup else min(1.0, level_timer / LEVEL_TIME)
         fill_w = int(bar_w * prog)
         seg_w  = int(18 * S)
         pygame.draw.rect(screen, (18, 32, 18), (bar_x, bar_y, bar_w, bar_h), border_radius=brd)
@@ -512,10 +516,8 @@ def draw_start_screen(screen, t, bg, leaderboard, start_idle_t):
     _ensure_surfaces()
     screen.blit(bg, (0, 0))
 
-    # Heavy cinematic overlay
-    ov = pygame.Surface((W, H), pygame.SRCALPHA)
-    ov.fill((0, 6, 0, 210))
-    screen.blit(ov, (0, 0))
+    # Heavy cinematic overlay (cached — avoids per-frame SRCALPHA allocation)
+    screen.blit(_ov_start, (0, 0))
 
     # Tree silhouette layer
     draw_tree_silhouettes(screen)

@@ -54,6 +54,18 @@ class Player:
         self.immune_t = STUN_SECS + IMMUNE_EXTRA
         self.flash_t  = 0.0
 
+    def tick_timers(self, dt):
+        """Advance stun/immune timers without processing movement.
+
+        Extracted so callers (e.g. LevelUpState) can keep timers ticking
+        without duplicating the logic that lives inside update().
+        """
+        if self.stun_t > 0:
+            self.stun_t  = max(0.0, self.stun_t - dt)
+            self.flash_t += dt * 12
+        if self.immune_t > 0:
+            self.immune_t = max(0.0, self.immune_t - dt)
+
     def update(self, dt, keys):
         # Both keys held -> neutral (BUG-08)
         ml = keys[pygame.K_LEFT]  or keys[pygame.K_a]
@@ -69,11 +81,7 @@ class Player:
         self.walk_t = (self.walk_t + dt * 8) if dx != 0 else 0.0
         self.x = max(self.PW // 2, min(W - self.PW // 2, self.x + dx))
 
-        if self.stun_t > 0:
-            self.stun_t  = max(0.0, self.stun_t - dt)
-            self.flash_t += dt * 12
-        if self.immune_t > 0:
-            self.immune_t = max(0.0, self.immune_t - dt)
+        self.tick_timers(dt)
 
     def draw(self, surf):
         stunned = self.is_stunned()

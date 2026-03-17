@@ -25,8 +25,6 @@ from constants import (
     BASE_SPAWN, SPAWN_DEC, MIN_SPAWN, SPEED_SCALE,
     OBS_TYPES, OBS_WEIGHTS,
     MAX_NAME_LEN,
-    ST_START, ST_PLAYING, ST_PAUSED, ST_LEVELUP,
-    ST_GAMEOVER, ST_NAME_ENTRY, ST_LEADERBOARD,
 )
 from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder
 from particles import ParticleSystem
@@ -139,10 +137,17 @@ class GameStateManager:
         state.enter(self.ctx)
 
     def pop(self) -> Optional[State]:
+        """Pop the top state, call its exit(), then enter() the new top (if any).
+
+        This ensures that when a pushed overlay (e.g. Pause) is popped, the
+        underlying state is properly re-entered / resumed.
+        """
         if not self._stack:
             return None
         state = self._stack.pop()
         state.exit(self.ctx)
+        if self._stack:
+            self._stack[-1].enter(self.ctx)
         return state
 
     def replace(self, state: State) -> None:
@@ -215,6 +220,15 @@ def _spawn(ctx: GameContext) -> None:
     }
     sx = _spawn_x_near_player(ctx.player, margins[kind], ctx.level)
     ctx.obstacles.append(cls(ctx.level, spawn_x=sx))
+
+
+def _draw_scene(ctx: GameContext) -> None:
+    """Draw background, obstacles, player, and particles."""
+    ctx.screen.blit(ctx.bg, (0, 0))
+    for obs in ctx.obstacles:
+        obs.draw(ctx.screen)
+    ctx.player.draw(ctx.screen)
+    ctx.particles.draw(ctx.screen)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -320,13 +334,9 @@ class PlayState(State):
                 ctx.manager.replace(GameOverState())
 
     def draw(self, ctx):
-        ctx.screen.blit(ctx.bg, (0, 0))
-        for obs in ctx.obstacles:
-            obs.draw(ctx.screen)
-        ctx.player.draw(ctx.screen)
-        ctx.particles.draw(ctx.screen)
+        _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, ST_PLAYING)
+                     ctx.player, is_levelup=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -356,13 +366,9 @@ class PauseState(State):
 
     def draw(self, ctx):
         # Draw game underneath
-        ctx.screen.blit(ctx.bg, (0, 0))
-        for obs in ctx.obstacles:
-            obs.draw(ctx.screen)
-        ctx.player.draw(ctx.screen)
-        ctx.particles.draw(ctx.screen)
+        _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, ST_PAUSED)
+                     ctx.player, is_levelup=False)
         hud.draw_pause_overlay(ctx.screen)
 
 
@@ -382,25 +388,17 @@ class LevelUpState(State):
 
     def update(self, ctx, dt):
         ctx.levelup_t -= dt
-        # Keep player timers ticking
-        p = ctx.player
-        if p.stun_t > 0:
-            p.stun_t   = max(0.0, p.stun_t - dt)
-            p.flash_t += dt * 12
-        if p.immune_t > 0:
-            p.immune_t = max(0.0, p.immune_t - dt)
+        # Keep player timers ticking (delegates to Player.tick_timers to
+        # avoid duplicating stun/immune countdown logic — review issue #5).
+        ctx.player.tick_timers(dt)
         if ctx.levelup_t <= 0:
             _reset_level(ctx)
             ctx.manager.replace(PlayState())
 
     def draw(self, ctx):
-        ctx.screen.blit(ctx.bg, (0, 0))
-        for obs in ctx.obstacles:
-            obs.draw(ctx.screen)
-        ctx.player.draw(ctx.screen)
-        ctx.particles.draw(ctx.screen)
+        _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, ST_LEVELUP)
+                     ctx.player, is_levelup=True)
         hud.draw_levelup_overlay(ctx.screen, ctx.level, ctx.score)
 
 

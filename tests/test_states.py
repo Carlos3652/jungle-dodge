@@ -1,8 +1,9 @@
 """Tests for the state machine (task jd-06).
 
-4 required tests:
+5 tests:
 - test_push_calls_enter
 - test_pop_calls_exit
+- test_pop_enters_new_top
 - test_stack_empty_exits_run
 - test_dt_capped_at_50ms
 """
@@ -17,6 +18,7 @@ _pg = types.ModuleType("pygame")
 _pg.init = MagicMock()
 _pg.font = types.ModuleType("pygame.font")
 _pg.font.init = MagicMock()
+_pg.font.get_init = MagicMock(return_value=True)
 _pg.font.SysFont = MagicMock(return_value=MagicMock())
 _pg.font.Font = MagicMock(return_value=MagicMock())
 _pg.display = types.ModuleType("pygame.display")
@@ -124,6 +126,22 @@ class TestPopCallsExit(unittest.TestCase):
         self.assertTrue(s.exited)
 
 
+class TestPopEntersNewTop(unittest.TestCase):
+    def test_pop_enters_new_top(self):
+        """After popping the top, enter() is called on the newly-exposed state."""
+        ctx = _make_ctx()
+        mgr = GameStateManager(ctx)
+        bottom = _SpyState()
+        top = _SpyState()
+        mgr.push(bottom)
+        # Reset the enter flag (push already called enter once)
+        bottom.entered = False
+        mgr.push(top)
+        mgr.pop()
+        self.assertTrue(top.exited, "popped state should have exit() called")
+        self.assertTrue(bottom.entered, "new top state should have enter() called after pop")
+
+
 class TestStackEmptyExitsRun(unittest.TestCase):
     def test_stack_empty_exits_run(self):
         """run() should return immediately when the stack is empty."""
@@ -161,6 +179,75 @@ class TestDtCappedAt50ms(unittest.TestCase):
 
         self.assertEqual(len(recorded_dts), 1)
         self.assertLessEqual(recorded_dts[0], 0.05)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TAB navigation tests (states.py: StartScreenState ↔ LeaderboardState)
+# ─────────────────────────────────────────────────────────────────────────────
+from states import StartScreenState, LeaderboardState
+
+
+def _key_event(key):
+    """Create a minimal KEYDOWN event namespace."""
+    import types as _t
+    ev = _t.SimpleNamespace(type=_pg.KEYDOWN, key=key, unicode="")
+    return ev
+
+
+class TestTabFromStartGoesToLeaderboard(unittest.TestCase):
+    def test_tab_from_start_goes_to_leaderboard(self):
+        ctx = _make_ctx()
+        mgr = GameStateManager(ctx)
+        start = StartScreenState()
+        mgr.push(start)
+        start.handle_event(ctx, _key_event(_pg.K_TAB))
+        self.assertIsInstance(mgr._stack[-1], LeaderboardState)
+
+
+class TestTabFromLeaderboardGoesToStart(unittest.TestCase):
+    def test_tab_from_leaderboard_goes_to_start(self):
+        ctx = _make_ctx()
+        mgr = GameStateManager(ctx)
+        lb = LeaderboardState()
+        mgr.push(lb)
+        lb.handle_event(ctx, _key_event(_pg.K_TAB))
+        self.assertIsInstance(mgr._stack[-1], StartScreenState)
+
+
+class TestTabRoundTrip(unittest.TestCase):
+    def test_tab_round_trip(self):
+        ctx = _make_ctx()
+        mgr = GameStateManager(ctx)
+        start = StartScreenState()
+        mgr.push(start)
+
+        # TAB → leaderboard
+        mgr._stack[-1].handle_event(ctx, _key_event(_pg.K_TAB))
+        self.assertIsInstance(mgr._stack[-1], LeaderboardState)
+
+        # TAB → back to start
+        mgr._stack[-1].handle_event(ctx, _key_event(_pg.K_TAB))
+        self.assertIsInstance(mgr._stack[-1], StartScreenState)
+
+
+class TestEscFromLeaderboardGoesToStart(unittest.TestCase):
+    def test_esc_from_leaderboard_goes_to_start(self):
+        ctx = _make_ctx()
+        mgr = GameStateManager(ctx)
+        lb = LeaderboardState()
+        mgr.push(lb)
+        lb.handle_event(ctx, _key_event(_pg.K_ESCAPE))
+        self.assertIsInstance(mgr._stack[-1], StartScreenState)
+
+
+class TestEnterFromLeaderboardGoesToStart(unittest.TestCase):
+    def test_enter_from_leaderboard_goes_to_start(self):
+        ctx = _make_ctx()
+        mgr = GameStateManager(ctx)
+        lb = LeaderboardState()
+        mgr.push(lb)
+        lb.handle_event(ctx, _key_event(_pg.K_RETURN))
+        self.assertIsInstance(mgr._stack[-1], StartScreenState)
 
 
 if __name__ == "__main__":

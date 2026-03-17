@@ -14,7 +14,7 @@ from hud import build_background
 
 
 def main():
-    # pygame is already initialized by constants.py import
+    pygame.init()
     display = pygame.display.set_mode((W, H), pygame.FULLSCREEN | pygame.SCALED)
     screen  = pygame.Surface((W, H))
     pygame.display.set_caption("Jungle Dodge")
