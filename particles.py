@@ -19,17 +19,6 @@ from constants import W, H, S, SY, F_MED
 # ── Budget ───────────────────────────────────────────────────────────────────
 MAX_PARTICLES = 400
 
-# ── Alpha scratch surface for batched alpha-blended draws ────────────────────
-_ALPHA_SCRATCH: Optional[pygame.Surface] = None
-
-
-def _get_alpha_scratch() -> pygame.Surface:
-    """Lazy-init the scratch surface (needs pygame display to exist)."""
-    global _ALPHA_SCRATCH
-    if _ALPHA_SCRATCH is None:
-        _ALPHA_SCRATCH = pygame.Surface((W, H), pygame.SRCALPHA)
-    return _ALPHA_SCRATCH
-
 
 # ── Particle dataclass ──────────────────────────────────────────────────────
 @dataclass
@@ -160,6 +149,15 @@ class ParticleSystem:
         # Pre-allocate pool
         self._pool: List[Particle] = [Particle() for _ in range(max_particles)]
         self._active: List[Particle] = []
+        self._alpha_scratch: Optional[pygame.Surface] = None
+
+    # ── Alpha scratch surface (per-instance) ─────────────────────────────
+
+    def _get_scratch(self) -> pygame.Surface:
+        """Lazy-init the scratch surface (needs pygame display to exist)."""
+        if self._alpha_scratch is None:
+            self._alpha_scratch = pygame.Surface((W, H), pygame.SRCALPHA)
+        return self._alpha_scratch
 
     # ── Pool management ─────────────────────────────────────────────────────
 
@@ -357,7 +355,7 @@ class ParticleSystem:
             alpha_int = int(a * 255)
 
             if p.shape == "circle":
-                scratch = _get_alpha_scratch()
+                scratch = self._get_scratch()
                 pygame.draw.circle(
                     scratch,
                     (r, g, b, alpha_int),
@@ -365,7 +363,7 @@ class ParticleSystem:
                     max(1, int(cur_size)),
                 )
             elif p.shape == "rect":
-                scratch = _get_alpha_scratch()
+                scratch = self._get_scratch()
                 half = max(1, int(cur_size))
                 pygame.draw.rect(
                     scratch,
@@ -373,10 +371,10 @@ class ParticleSystem:
                     (int(p.x) - half, int(p.y) - half, half * 2, half * 2),
                 )
             elif p.shape == "star":
-                scratch = _get_alpha_scratch()
+                scratch = self._get_scratch()
                 self._draw_star(scratch, p.x, p.y, cur_size, (r, g, b, alpha_int), p.rotation)
             elif p.shape == "trail":
-                scratch = _get_alpha_scratch()
+                scratch = self._get_scratch()
                 half = max(1, int(cur_size))
                 pygame.draw.rect(
                     scratch,
@@ -385,9 +383,9 @@ class ParticleSystem:
                 )
 
         # Blit scratch and clear it
-        if _ALPHA_SCRATCH is not None:
-            surface.blit(_ALPHA_SCRATCH, (0, 0))
-            _ALPHA_SCRATCH.fill((0, 0, 0, 0))
+        if self._alpha_scratch is not None:
+            surface.blit(self._alpha_scratch, (0, 0))
+            self._alpha_scratch.fill((0, 0, 0, 0))
 
     @staticmethod
     def _draw_star(
