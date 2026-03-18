@@ -82,6 +82,20 @@ class TestParticleSystem:
         assert ps.active_count == 8
         assert ps.pool_count == 0
 
+    def test_independent_scratch_surfaces(self):
+        """Two ParticleSystem instances must have independent scratch surfaces."""
+        ps1 = ParticleSystem(max_particles=5)
+        ps2 = ParticleSystem(max_particles=5)
+
+        # Force lazy-init of scratch surfaces
+        scratch1 = ps1._get_scratch()
+        scratch2 = ps2._get_scratch()
+
+        assert scratch1 is not scratch2, (
+            "_alpha_scratch surfaces must be independent per instance"
+        )
+        assert ps1._alpha_scratch is not ps2._alpha_scratch
+
     def test_emitted_particles_alpha_normalised(self):
         """All emitted particles must have alpha in [0.0, 1.0]."""
         ps = ParticleSystem(max_particles=20)
