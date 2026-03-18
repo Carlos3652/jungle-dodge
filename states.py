@@ -25,6 +25,7 @@ from constants import (
     BASE_SPAWN, SPAWN_DEC, MIN_SPAWN, SPEED_SCALE,
     OBS_TYPES, OBS_WEIGHTS,
     MAX_NAME_LEN,
+    STREAK_TIERS, STREAK_LOST_THRESHOLD,
 )
 from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder
 from particles import ParticleSystem
@@ -53,6 +54,7 @@ class GameContext:
     spawn_timer: float = 0.0
     levelup_t: float = 0.0
     leaderboard: List = field(default_factory=list)
+    streak: int = 0
 
     # Name entry
     name_input: str = ""
@@ -181,9 +183,25 @@ def _new_game(ctx: GameContext) -> None:
     """Reset all gameplay state for a fresh game."""
     ctx.score        = 0
     ctx.level        = 1
+    ctx.streak       = 0
     ctx.player       = Player()
     ctx.start_idle_t = 0.0
     _reset_level(ctx)
+
+
+def get_streak_multiplier(streak: int) -> float:
+    """Return the score multiplier for the current streak count.
+
+    Tiers (from STREAK_TIERS):
+        0-4  → 1.0x
+        5-9  → 1.5x
+        10-19 → 2.0x
+        20+  → 3.0x
+    """
+    for threshold, mult in STREAK_TIERS:
+        if streak >= threshold:
+            return mult
+    return 1.0
 
 
 def _reset_level(ctx: GameContext) -> None:
@@ -282,10 +300,35 @@ class PlayState(State):
 
         if event.key == pygame.K_ESCAPE:
             ctx.manager.push(PauseState())
+            return
+
+        if event.key == pygame.K_SPACE:
+            ctx.player.start_roll()
 
     def update(self, ctx, dt):
         keys = pygame.key.get_pressed()
         ctx.player.update(dt, keys)
+
+        # ── Roll trail particles ────────────────────────────────────────────
+        if ctx.player.rolling:
+            # Emit small trail particles behind the player during roll
+            trail_x = ctx.player.x - ctx.player.roll_dir * int(16 * SX)
+            trail_y = ctx.player.y + ctx.player.PH // 2
+            ctx.particles.emit(
+                trail_x, trail_y,
+                count=2,
+                color=CLR["teal"],
+                lifetime=0.25,
+                speed_range=(40 * SX, 120 * SX),
+                spread=math.pi,
+                gravity=0.0,
+                drag=3.0,
+                size=float(int(5 * S)),
+                size_end=0.0,
+                alpha=180.0,
+                alpha_end=0.0,
+                shape="circle",
+            )
 
         ctx.level_timer += dt
         if ctx.level_timer >= LEVEL_TIME:
@@ -305,20 +348,29 @@ class PlayState(State):
                 obs.did_hit = True
                 ctx.player.hit()
                 ctx.particles.pop_text(ctx.player.x, ctx.player.y - int(10 * S),
-                                       "OUCH!", CLR["red"])
+                                       "OUCH!", CLR["red"], "hit_text")
+                # Streak break
+                if ctx.streak >= STREAK_LOST_THRESHOLD:
+                    ctx.particles.pop_text(
+                        ctx.player.x, ctx.player.y - int(40 * S),
+                        "STREAK LOST", CLR["red"], "hit_text")
+                ctx.streak = 0
                 break
 
         # Update obstacles
         for obs in ctx.obstacles:
             obs.update(dt, ctx.player)
 
-        # Scoring (CRIT-01)
+        # Scoring (CRIT-01) — streak multiplier applied
         for obs in ctx.obstacles:
             if obs.scored and not obs._pts and not obs.did_hit:
                 obs._pts = True
-                ctx.score += DODGE_PTS
+                ctx.streak += 1
+                multiplier = get_streak_multiplier(ctx.streak)
+                pts = int(DODGE_PTS * multiplier)
+                ctx.score += pts
                 pop_y = GROUND_Y - obs.exp_r - int(10 * S) if isinstance(obs, Bomb) else GROUND_Y - int(30 * S)
-                ctx.particles.pop_text(obs.x, pop_y, f"+{DODGE_PTS}", CLR["gold"])
+                ctx.particles.pop_text(obs.x, pop_y, f"+{pts}", CLR["gold"])
 
         ctx.obstacles = [o for o in ctx.obstacles if o.alive]
         ctx.particles.update(dt)
@@ -336,7 +388,7 @@ class PlayState(State):
     def draw(self, ctx):
         _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, is_levelup=False)
+                     ctx.player, is_levelup=False, streak=ctx.streak)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -368,7 +420,7 @@ class PauseState(State):
         # Draw game underneath
         _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, is_levelup=False)
+                     ctx.player, is_levelup=False, streak=ctx.streak)
         hud.draw_pause_overlay(ctx.screen)
 
 
@@ -398,7 +450,7 @@ class LevelUpState(State):
     def draw(self, ctx):
         _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, is_levelup=True)
+                     ctx.player, is_levelup=True, streak=ctx.streak)
         hud.draw_levelup_overlay(ctx.screen, ctx.level, ctx.score)
 
 

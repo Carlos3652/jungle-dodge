@@ -15,6 +15,7 @@ from constants import (
     CLR,
     MAX_LIVES, STUN_SECS, IMMUNE_EXTRA,
     PLAYER_SPD, SPEED_SCALE,
+    ROLL_DURATION, ROLL_SPEED_MULT, ROLL_IFRAME, ROLL_COOLDOWN,
 )
 
 
@@ -34,6 +35,11 @@ class Player:
         self.flash_t  = 0.0
         self.walk_t   = 0.0
         self.facing   = 1
+        # Roll state
+        self.rolling  = False        # True while roll is active
+        self.roll_t   = 0.0          # remaining roll duration
+        self.roll_dir = 1            # locked direction at roll start
+        self.roll_cd  = 0.0          # cooldown timer (counts down to 0)
 
     @property
     def rect(self):
@@ -46,6 +52,21 @@ class Player:
         """True during stun AND brief grace period after (CRIT-03)."""
         return self.immune_t > 0
 
+    def can_roll(self):
+        """True if roll is off cooldown and player is not already rolling or stunned."""
+        return not self.rolling and self.roll_cd <= 0 and not self.is_stunned()
+
+    def start_roll(self):
+        """Begin a side roll in the current facing direction."""
+        if not self.can_roll():
+            return
+        self.rolling  = True
+        self.roll_t   = ROLL_DURATION
+        self.roll_dir = self.facing
+        self.roll_cd  = ROLL_COOLDOWN
+        # Grant i-frames for the first portion of the roll
+        self.immune_t = max(self.immune_t, ROLL_IFRAME)
+
     def hit(self):
         if self.is_hit_immune():
             return
@@ -55,7 +76,7 @@ class Player:
         self.flash_t  = 0.0
 
     def tick_timers(self, dt):
-        """Advance stun/immune timers without processing movement.
+        """Advance stun/immune/roll timers without processing movement.
 
         Extracted so callers (e.g. LevelUpState) can keep timers ticking
         without duplicating the logic that lives inside update().
@@ -65,31 +86,46 @@ class Player:
             self.flash_t += dt * 12
         if self.immune_t > 0:
             self.immune_t = max(0.0, self.immune_t - dt)
+        # Roll duration
+        if self.rolling:
+            self.roll_t = max(0.0, self.roll_t - dt)
+            if self.roll_t <= 0:
+                self.rolling = False
+        # Roll cooldown (ticks even when not rolling)
+        if self.roll_cd > 0:
+            self.roll_cd = max(0.0, self.roll_cd - dt)
 
     def update(self, dt, keys):
-        # Both keys held -> neutral (BUG-08)
-        ml = keys[pygame.K_LEFT]  or keys[pygame.K_a]
-        mr = keys[pygame.K_RIGHT] or keys[pygame.K_d]
-        dx = 0.0
-        if ml and not mr:
-            dx = -PLAYER_SPD * dt   # dt-scaled (BUG-07)
-            self.facing = -1
-        elif mr and not ml:
-            dx =  PLAYER_SPD * dt
-            self.facing =  1
+        if self.rolling:
+            # During roll: move at 2.5x speed in locked direction, ignore input
+            dx = self.roll_dir * PLAYER_SPD * ROLL_SPEED_MULT * dt
+        else:
+            # Both keys held -> neutral (BUG-08)
+            ml = keys[pygame.K_LEFT]  or keys[pygame.K_a]
+            mr = keys[pygame.K_RIGHT] or keys[pygame.K_d]
+            dx = 0.0
+            if ml and not mr:
+                dx = -PLAYER_SPD * dt   # dt-scaled (BUG-07)
+                self.facing = -1
+            elif mr and not ml:
+                dx =  PLAYER_SPD * dt
+                self.facing =  1
 
         self.walk_t = (self.walk_t + dt * 8) if dx != 0 else 0.0
         self.x = max(self.PW // 2, min(W - self.PW // 2, self.x + dx))
 
         self.tick_timers(dt)
 
-    def draw(self, surf):
-        stunned = self.is_stunned()
-        if stunned and int(self.flash_t) % 2 == 1:
-            return
+    def _draw_body(self, surf, cx, top_y, stunned):
+        """Draw player body parts at given coordinates.
 
-        cx   = self.x
-        boty = self.y + self.PH
+        Args:
+            surf: Surface to draw on.
+            cx: Center X coordinate.
+            top_y: Top Y coordinate of the player sprite.
+            stunned: Whether the player is currently stunned.
+        """
+        boty = top_y + self.PH
         sw   = math.sin(self.walk_t) * int(9 * S) if self.walk_t else 0
 
         o5  = int(5  * S)
@@ -113,23 +149,23 @@ class Player:
         # Legs
         lleg = (cx - o5 + int(sw), boty)
         rleg = (cx + o5 - int(sw), boty)
-        pygame.draw.line(surf, CLR["pants"], (cx - o5, self.y + o36), lleg, max(1, int(5 * S)))
-        pygame.draw.line(surf, CLR["pants"], (cx + o5, self.y + o36), rleg, max(1, int(5 * S)))
+        pygame.draw.line(surf, CLR["pants"], (cx - o5, top_y + o36), lleg, max(1, int(5 * S)))
+        pygame.draw.line(surf, CLR["pants"], (cx + o5, top_y + o36), rleg, max(1, int(5 * S)))
         pygame.draw.circle(surf, (50, 35, 20), lleg, o4)
         pygame.draw.circle(surf, (50, 35, 20), rleg, o4)
 
         # Arms
         aw = math.sin(self.walk_t + math.pi) * o7 if self.walk_t else 0
-        ay = self.y + o22
+        ay = top_y + o22
         pygame.draw.line(surf, CLR["shirt"], (cx - o12, ay), (cx - o20, ay + o14 + int(aw)), max(1, int(4 * S)))
         pygame.draw.line(surf, CLR["shirt"], (cx + o12, ay), (cx + o20, ay + o14 - int(aw)), max(1, int(4 * S)))
 
         # Body
         bcol = CLR["shirt"] if not stunned else (255, 255, 100)
-        pygame.draw.rect(surf, bcol, (cx - o13, self.y + o16, o26, o22), border_radius=o4)
+        pygame.draw.rect(surf, bcol, (cx - o13, top_y + o16, o26, o22), border_radius=o4)
 
         # Head
-        hcy  = self.y + o10
+        hcy  = top_y + o10
         hcol = CLR["skin"] if not stunned else (255, 230, 150)
         pygame.draw.circle(surf, hcol, (cx, hcy), o12)
         pygame.draw.circle(surf, (30, 20, 10), (cx + o4 * self.facing, hcy), o2)
@@ -145,9 +181,46 @@ class Player:
             for i in range(3):
                 angle = self.flash_t + i * (2 * math.pi / 3)
                 sx = cx + int(int(22 * S) * math.cos(angle))
-                sy = self.y - o4 + int(o9 * math.sin(angle))
+                sy = top_y - o4 + int(o9 * math.sin(angle))
                 pygame.draw.circle(surf, CLR["yellow"], (sx, sy), o4)
                 pygame.draw.circle(surf, CLR["white"],  (sx, sy), o2)
+
+    def draw(self, surf):
+        stunned = self.is_stunned()
+        if stunned and int(self.flash_t) % 2 == 1:
+            return
+
+        # ── Roll cooldown arc (drawn under player) ──────────────────────────
+        if self.roll_cd > 0:
+            cd_frac = 1.0 - (self.roll_cd / ROLL_COOLDOWN)  # 0→1 as recharge fills
+            arc_r = int(24 * S)
+            arc_rect = pygame.Rect(self.x - arc_r, self.y + self.PH - int(4 * S),
+                                   arc_r * 2, arc_r * 2)
+            end_angle = -math.pi / 2 + cd_frac * 2 * math.pi
+            pygame.draw.arc(surf, CLR["teal"], arc_rect,
+                            -math.pi / 2, end_angle, max(1, int(3 * S)))
+
+        # ── Roll tilt transform ─────────────────────────────────────────────
+        if self.rolling:
+            # Render player to a temporary surface, tilt 45°, squash Y to 0.85
+            pw_full = self.PW + int(20 * S)  # extra margin for tilt
+            ph_full = self.PH + int(20 * S)
+            tmp = pygame.Surface((pw_full, ph_full), pygame.SRCALPHA)
+            offset_x = pw_full // 2
+            offset_y = int(10 * S)
+            self._draw_body(tmp, offset_x, offset_y, stunned)
+            # Rotate 45° in roll direction
+            angle = -45 * self.roll_dir
+            rotated = pygame.transform.rotate(tmp, angle)
+            # Squash Y to 85%
+            rw, rh = rotated.get_size()
+            squashed = pygame.transform.scale(rotated, (rw, max(1, int(rh * 0.85))))
+            # Blit centered on player position
+            sw2, sh2 = squashed.get_size()
+            surf.blit(squashed, (self.x - sw2 // 2, self.y + self.PH // 2 - sh2 // 2))
+            return
+
+        self._draw_body(surf, self.x, self.y, stunned)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

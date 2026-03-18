@@ -4,10 +4,14 @@ All module-level constants extracted from jungle_dodge.py (task jd-01).
 """
 
 import os
+import types
 import pygame
 
-pygame.init()
-pygame.font.init()
+# Only init the font subsystem (needed for font objects below).
+# Avoids the heavier pygame.init() so that importing constants doesn't
+# initialise display/audio/etc. — keeps CI and headless environments happy.
+if not pygame.font.get_init():
+    pygame.font.init()
 
 # ── Window ────────────────────────────────────────────────────────────────────
 W, H   = 3840, 2160
@@ -21,7 +25,7 @@ GROUND_Y     = H - int(90 * S)   # 2160 - 324 = 1836
 PLAYER_FLOOR = GROUND_Y
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-CLR = {
+CLR = types.MappingProxyType({
     # ── Palette B — Ancient Temple (env + UI) ─────────────────────────────────
     "sky_top"    : (  6,  14,   8),
     "sky_bot"    : ( 14,  30,  12),
@@ -60,7 +64,7 @@ CLR = {
     "spike_dk"   : (130,  35, 180),
     "boulder"    : (140, 115,  85),
     "boulder_dk" : (100,  80,  60),
-}
+})
 
 # ── Game Constants ─────────────────────────────────────────────────────────────
 LEVEL_TIME       = 45       # seconds per level
@@ -73,11 +77,27 @@ BASE_SPAWN       = 1.5
 SPAWN_DEC        = 0.12
 MIN_SPAWN        = 0.35
 SPEED_SCALE      = 0.25
-OBS_TYPES        = ["vine", "bomb", "spike", "boulder"]
-OBS_WEIGHTS      = [3, 2, 3, 2]
+OBS_TYPES        = ("vine", "bomb", "spike", "boulder")
+OBS_WEIGHTS      = (3, 2, 3, 2)
 MAX_NAME_LEN     = 5
 LEADERBOARD_SIZE = 10
+
+# ── Roll ──────────────────────────────────────────────────────────────────────
+ROLL_DURATION    = 0.4       # seconds the roll lasts
+ROLL_SPEED_MULT  = 2.5       # movement speed multiplier during roll
+ROLL_IFRAME      = 0.25      # invincibility window at start of roll (seconds)
+ROLL_COOLDOWN    = 2.0       # seconds before next roll allowed
 LB_FILE          = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaderboard.json")
+
+# ── Streak Combo Multiplier ──────────────────────────────────────────────────
+# (tier_min_dodges, multiplier)
+STREAK_TIERS = (
+    (20, 3.0),   # 20+ dodges  → 3x
+    (10, 2.0),   # 10-19       → 2x
+    ( 5, 1.5),   # 5-9         → 1.5x
+    ( 0, 1.0),   # 0-4         → 1x
+)
+STREAK_LOST_THRESHOLD = 5  # emit "STREAK LOST" if streak was >= this
 
 # ── States ─────────────────────────────────────────────────────────────────────
 ST_START       = "start"

@@ -15,6 +15,7 @@ from constants import (
     CLR,
     LEVEL_TIME, MAX_LIVES, STUN_SECS,
     MAX_NAME_LEN, LEADERBOARD_SIZE,
+    STREAK_TIERS,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
 
@@ -231,7 +232,25 @@ def draw_tree_silhouettes(screen):
 # ─────────────────────────────────────────────────────────────────────────────
 #  HUD — Stone Tablet (bottom, Variant A)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_hud(screen, score, level, level_timer, player, is_levelup=False):
+def _streak_tier_info(streak):
+    """Return (multiplier, tier_name, color) for the given streak count.
+
+    Tiers:
+        0-4  → 1.0x, no badge
+        5-9  → 1.5x, bronze
+        10-19 → 2.0x, silver
+        20+  → 3.0x, gold
+    """
+    if streak >= 20:
+        return 3.0, "gold", CLR["gold"]
+    elif streak >= 10:
+        return 2.0, "silver", CLR["silver"]
+    elif streak >= 5:
+        return 1.5, "bronze", CLR["bronze"]
+    return 1.0, None, None
+
+
+def draw_hud(screen, score, level, level_timer, player, is_levelup=False, streak=0):
     _ensure_surfaces()
     ph  = int(72 * S)
     py  = H - ph
@@ -250,6 +269,34 @@ def draw_hud(screen, score, level, level_timer, player, is_levelup=False):
     sc_val  = F_SERIF.render(str(score), True, CLR["gold"])
     screen.blit(sc_shad, (int(15 * SX), py + int(28 * S)))
     screen.blit(sc_val,  (int(14 * SX), py + int(27 * S)))
+
+    # STREAK BADGE (right of score) — only visible at 5+ streak
+    mult, tier_name, tier_color = _streak_tier_info(streak)
+    if tier_name is not None:
+        ticks = pygame.time.get_ticks()
+        badge_text = f"{streak} x{mult:g}"
+        badge_surf = F_TINY.render(badge_text, True, tier_color)
+        bw = badge_surf.get_width() + int(16 * SX)
+        bh = badge_surf.get_height() + int(6 * S)
+        # Position right of the score value
+        badge_x = sc_val.get_width() + int(24 * SX)
+        badge_y = py + int(25 * S)
+        # Pulse size at gold tier
+        if tier_name == "gold":
+            pulse = 1.0 + 0.06 * math.sin(ticks * 0.006)
+            bw = int(bw * pulse)
+            bh = int(bh * pulse)
+        # Draw pill background
+        pygame.draw.rect(screen, (20, 20, 14),
+                         (badge_x, badge_y, bw, bh),
+                         border_radius=int(bh // 2))
+        pygame.draw.rect(screen, tier_color,
+                         (badge_x, badge_y, bw, bh),
+                         max(1, int(2 * S)),
+                         border_radius=int(bh // 2))
+        screen.blit(badge_surf,
+                    (badge_x + (bw - badge_surf.get_width()) // 2,
+                     badge_y + (bh - badge_surf.get_height()) // 2))
 
     # LEVEL (center-left)
     lv_lbl = F_TINY.render("LEVEL", True, CLR["olive"])
