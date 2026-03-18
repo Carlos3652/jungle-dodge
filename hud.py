@@ -78,6 +78,52 @@ class HudCache:
             for name, label in _WAVE_PHASE_LABELS.items()
         }
 
+        # ── Pre-rendered overlay / screen static labels ───────────────
+        # Pause overlay
+        self.lbl_paused       = F_LARGE.render("PAUSED", True, CLR["white"])
+        self.lbl_pause_h1     = F_MED.render("SPACE \u2014 resume", True, (195, 215, 195))
+        self.lbl_pause_h2     = F_MED.render("ESC \u2014 return to home screen", True, (195, 215, 195))
+
+        # Level-up overlay
+        self.lbl_levelup_sub  = F_MED.render("Things are getting faster...", True, CLR["white"])
+
+        # Start screen
+        self.lbl_title        = F_HUGE.render("JUNGLE DODGE", True, CLR["gold"])
+        self.lbl_title_shad   = F_HUGE.render("JUNGLE DODGE", True, (28, 16, 0))
+        self.lbl_tagline      = F_SMALL.render("SURVIVE. DODGE. OUTLAST.", True, (185, 210, 185))
+        self.lbl_tab_hint     = F_TINY.render("TAB \u2014 view leaderboard", True, (80, 110, 80))
+        self.lbl_quit_hint    = F_TINY.render("Close window to quit", True, (55, 75, 55))
+        self.lbl_question     = F_SMALL.render("?", True, (100, 140, 100))
+        self.lbl_ctrl_hints   = [
+            F_TINY.render(t, True, (175, 210, 175)) for t in [
+                "Arrow keys / A-D  \u2014 move",
+                "3 lives  |  45 s per level",
+                "ESC \u2014 pause / home",
+            ]
+        ]
+
+        # Game-over screen
+        self.lbl_gameover       = F_HUGE.render("GAME OVER", True, CLR["red"])
+        self.lbl_gameover_shad  = F_HUGE.render("GAME OVER", True, (80, 0, 0))
+        self.lbl_go_top10       = F_SMALL.render("Current Top 10:", True, (190, 210, 190))
+
+        # Leaderboard screen
+        self.lbl_lb_title       = F_LARGE.render("TOP 10 LEADERBOARD", True, CLR["gold"])
+        self.lbl_lb_title_shad  = F_LARGE.render("TOP 10 LEADERBOARD", True, (50, 35, 0))
+
+        # Name-entry screen
+        self.lbl_ne_title       = F_LARGE.render("YOU MADE THE TOP 10!", True, CLR["gold"])
+        self.lbl_ne_title_shad  = F_LARGE.render("YOU MADE THE TOP 10!", True, (50, 30, 0))
+        self.lbl_ne_prompt      = F_MED.render("Enter your name:", True, (190, 210, 190))
+        self.lbl_ne_hint1       = F_SMALL.render(
+            "A-Z  /  0-9  to type     BACKSPACE to delete", True, (140, 170, 140))
+        self.lbl_ne_hint2       = F_SMALL.render(
+            "ENTER to confirm     ESC to skip", True, (140, 170, 140))
+
+        # ── Pre-rendered skull icons (2 states: alive / lost) ────────
+        self.skull_alive = F_SKULL.render("\u2620", True, (190, 30, 30))
+        self.skull_lost  = F_SKULL.render("\u2620", True, (55, 55, 55))
+
         # ── Dynamic value cache (dirty-tracked) ────────────────────────
         self._dyn_score      = None   # cached score int
         self._dyn_score_shad = None
@@ -88,6 +134,18 @@ class HudCache:
         self._dyn_time_key   = None   # (display_t, is_red)
         self._dyn_time_shad  = None
         self._dyn_time_val   = None
+        self._dyn_streak_key  = None  # (streak, tier_label)
+        self._dyn_streak_surf = None
+
+        # ── Leaderboard table surface cache (dirty-tracked by hash) ──────
+        self._lb_hash_full  = None
+        self._lb_hash_compact = None
+        self._lb_hdr_full   = None   # header surface (full mode)
+        self._lb_hdr_compact = None  # header surface (compact mode)
+        self._lb_rows_full  = []     # list of row surfaces (full mode)
+        self._lb_rows_compact = []   # list of row surfaces (compact mode)
+        self._lb_empty_full = None   # "no scores" surface (full mode)
+        self._lb_empty_compact = None
 
     # ── Dynamic value helpers with dirty-tracking ───────────────────────
     def get_score_surfs(self, score):
@@ -118,6 +176,98 @@ class HudCache:
             self._dyn_time_shad = F_SERIF.render(s, True, (18, 18, 12))
             self._dyn_time_val  = F_SERIF.render(s, True, tcol)
         return self._dyn_time_shad, self._dyn_time_val
+
+    def get_streak_surf(self, streak, tier_label, text_color):
+        """Return cached badge text surface, re-rendering only on change."""
+        key = (streak, tier_label)
+        if key != self._dyn_streak_key:
+            self._dyn_streak_key = key
+            mult, _, _ = _streak_tier_info(streak)
+            badge_str = f"x{mult:g}  {streak}"
+            self._dyn_streak_surf = F_TINY.render(badge_str, True, text_color)
+        return self._dyn_streak_surf
+
+    def get_lb_table_surfs(self, leaderboard, full=True):
+        """Return (header_surf, row_surfs_list, empty_surf) for the leaderboard table.
+
+        Re-renders only when the leaderboard data hash changes.
+        *empty_surf* is non-None only when leaderboard is empty.
+        """
+        lb_hash = hash(tuple(
+            (e.get("name", "?"), e.get("score", 0), e.get("level", "-"))
+            for e in (leaderboard or [])[:LEADERBOARD_SIZE]
+        ))
+
+        if full:
+            cached_hash = self._lb_hash_full
+        else:
+            cached_hash = self._lb_hash_compact
+
+        if lb_hash == cached_hash:
+            if full:
+                return self._lb_hdr_full, self._lb_rows_full, self._lb_empty_full
+            else:
+                return self._lb_hdr_compact, self._lb_rows_compact, self._lb_empty_compact
+
+        # ── Re-bake surfaces ──────────────────────────────────────────
+        col_w = int(620 * SX)
+        row_h = int(36 * S) if full else int(26 * S)
+        font  = F_SMALL if full else F_TINY
+
+        x1 = int(14  * SX)
+        x2 = int(70  * SX)
+        x3 = col_w - int(200 * SX)
+        x4 = col_w - int(60  * SX)
+
+        # Header
+        hdr = pygame.Surface((col_w, row_h))
+        hdr.fill((30, 70, 30))
+        hdr.set_alpha(220)
+        for text, x_off in [("#", x1), ("NAME", x2), ("SCORE", x3), ("LVL", x4)]:
+            s = font.render(text, True, CLR["gold"])
+            hdr.blit(s, (x_off, (row_h - s.get_height()) // 2))
+
+        # Empty message
+        empty_surf = None
+        if not leaderboard:
+            empty_surf = font.render("No scores yet \u2014 be the first!", True, (160, 190, 160))
+
+        # Row surfaces
+        medal_bg = [(60, 45, 0), (35, 35, 45), (45, 25, 10)]
+        medal_fc = [CLR["gold"], CLR["silver"], CLR["bronze"]]
+        rows = []
+        for i, entry in enumerate((leaderboard or [])[:LEADERBOARD_SIZE]):
+            bg_col = medal_bg[i] if i < 3 else (
+                CLR["lb_row_a"] if (i - 3) % 2 == 0 else CLR["lb_row_b"])
+            rs = pygame.Surface((col_w, row_h))
+            rs.fill(bg_col)
+            rs.set_alpha(220)
+
+            fc = medal_fc[i] if i < 3 else CLR["white"]
+            cy = (row_h - font.get_height()) // 2
+            for text, x_off, color in [
+                (str(i + 1),                  x1, fc),
+                (entry.get("name", "?"),      x2, CLR["white"]),
+                (str(entry.get("score", 0)),  x3, CLR["gold"]),
+                (str(entry.get("level", "-")),x4, (160, 200, 160)),
+            ]:
+                s = font.render(text, True, color)
+                rs.blit(s, (x_off, cy))
+            rows.append(rs)
+
+        # Store in the correct slot
+        if full:
+            self._lb_hash_full   = lb_hash
+            self._lb_hdr_full    = hdr
+            self._lb_rows_full   = rows
+            self._lb_empty_full  = empty_surf
+        else:
+            self._lb_hash_compact   = lb_hash
+            self._lb_hdr_compact    = hdr
+            self._lb_rows_compact   = rows
+            self._lb_empty_compact  = empty_surf
+
+        return hdr, rows, empty_surf
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,6 +429,8 @@ def draw_game(screen, bg, obstacles, player, particles):
     screen.blit(bg, (0, 0))
     for obs in obstacles:
         obs.draw(screen)
+    if player is None:
+        return
     player.draw(screen, particles)
     particles.draw(screen)
 
@@ -388,6 +540,8 @@ def draw_wave_phase_bar(screen, level_timer, cache=None):
 
 def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False):
     """Draw the bottom HUD bar with score, level, time, lives, streak badge, wave phase bar, and progress bar."""
+    if player is None:
+        return
     ph  = int(72 * S)
     py  = H - ph
 
@@ -408,8 +562,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
     mult, tier_label, color_key = _streak_tier_info(streak)
     if tier_label is not None and color_key in _BADGE_COLORS:
         bc = _BADGE_COLORS[color_key]
-        badge_str  = f"x{mult:g}  {streak}"
-        badge_surf = F_TINY.render(badge_str, True, bc["text"])
+        badge_surf = cache.get_streak_surf(streak, tier_label, bc["text"])
         pad_x = int(8 * SX)
         pad_y = int(3 * S)
         bw = badge_surf.get_width() + pad_x * 2
@@ -449,12 +602,11 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
     screen.blit(tm_shad, (W // 2 + int(41 * SX), py + int(28 * S)))
     screen.blit(tm_val,  (W // 2 + int(40 * SX), py + int(27 * S)))
 
-    # LIVES — skull icons (right)
+    # LIVES — pre-rendered skull icons from cache (right)
     screen.blit(cache.lbl_lives, (W - int(122 * SX), py + int(6 * S)))
     skull_gap = int(36 * S)
     for i in range(MAX_LIVES):
-        sk_col = (190, 30, 30) if i < player.lives else (55, 55, 55)
-        sk = F_SKULL.render("\u2620", True, sk_col)
+        sk = cache.skull_alive if i < player.lives else cache.skull_lost
         screen.blit(sk, (W - int(120 * SX) + i * skull_gap, py + int(26 * S)))
 
     # Vine growth bar / stun bar
@@ -502,7 +654,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
 def draw_levelup_overlay(screen, cache, level, score):
     screen.blit(cache.ov_levelup, (0, 0))
     lt  = F_LARGE.render(f"LEVEL {level}!", True, CLR["gold"])
-    sub = F_MED.render("Things are getting faster...", True, CLR["white"])
+    sub = cache.lbl_levelup_sub
     sc  = F_SMALL.render(f"Score so far: {score}", True, CLR["gold"])
     screen.blit(lt,  (W // 2 - lt.get_width()  // 2, H // 2 - int(50 * S)))
     screen.blit(sub, (W // 2 - sub.get_width() // 2, H // 2 + int(20 * S)))
@@ -514,9 +666,9 @@ def draw_levelup_overlay(screen, cache, level, score):
 # ─────────────────────────────────────────────────────────────────────────────
 def draw_pause_overlay(screen, cache):
     screen.blit(cache.ov_pause, (0, 0))
-    pt  = F_LARGE.render("PAUSED", True, CLR["white"])
-    h1  = F_MED.render("SPACE \u2014 resume", True, (195, 215, 195))
-    h2  = F_MED.render("ESC \u2014 return to home screen", True, (195, 215, 195))
+    pt = cache.lbl_paused
+    h1 = cache.lbl_pause_h1
+    h2 = cache.lbl_pause_h2
     screen.blit(pt,  (W // 2 - pt.get_width()  // 2, H // 2 - int(60 * S)))
     screen.blit(h1,  (W // 2 - h1.get_width()  // 2, H // 2 + int(10 * S)))
     screen.blit(h2,  (W // 2 - h2.get_width()  // 2, H // 2 + int(50 * S)))
@@ -536,8 +688,8 @@ def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t):
                      (W // 2 + int(320 * SX), H // 2 + int(130 * S)), 1)
 
     # Title
-    trop = F_LARGE.render("YOU MADE THE TOP 10!", True, CLR["gold"])
-    shad = F_LARGE.render("YOU MADE THE TOP 10!", True, (50, 30, 0))
+    trop = cache.lbl_ne_title
+    shad = cache.lbl_ne_title_shad
     title_y = H // 2 - int(218 * S)
     screen.blit(shad, (W // 2 - trop.get_width() // 2 + int(3 * S), title_y + int(3 * S)))
     screen.blit(trop, (W // 2 - trop.get_width() // 2,              title_y))
@@ -547,7 +699,7 @@ def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t):
     screen.blit(sc, (W // 2 - sc.get_width() // 2, H // 2 - int(148 * S)))
 
     # Input prompt
-    prompt = F_MED.render("Enter your name:", True, (190, 210, 190))
+    prompt = cache.lbl_ne_prompt
     screen.blit(prompt, (W // 2 - prompt.get_width() // 2, H // 2 - int(105 * S)))
 
     # Letter slots
@@ -577,8 +729,8 @@ def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t):
                                  border_radius=int(2 * S))
 
     # Hints
-    h1 = F_SMALL.render("A-Z  /  0-9  to type     BACKSPACE to delete", True, (140, 170, 140))
-    h2 = F_SMALL.render("ENTER to confirm     ESC to skip", True, (140, 170, 140))
+    h1 = cache.lbl_ne_hint1
+    h2 = cache.lbl_ne_hint2
     screen.blit(h1, (W // 2 - h1.get_width() // 2, sy + slot_h + int(18 * S)))
     screen.blit(h2, (W // 2 - h2.get_width() // 2, sy + slot_h + int(46 * S)))
 
@@ -586,18 +738,37 @@ def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t):
 # ─────────────────────────────────────────────────────────────────────────────
 #  Leaderboard table (shared by leaderboard and gameover screens)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_lb_table(screen, leaderboard, start_y, full=True):
-    col_w  = int(620 * SX)
-    row_h  = int(36 * S) if full else int(26 * S)
-    font   = F_SMALL if full else F_TINY
-    tx     = W // 2 - col_w // 2
+def draw_lb_table(screen, leaderboard, start_y, full=True, cache=None):
+    col_w = int(620 * SX)
+    row_h = int(36 * S) if full else int(26 * S)
+    tx    = W // 2 - col_w // 2
 
-    x1  = int(14  * SX)
-    x2  = int(70  * SX)
-    x3  = col_w - int(200 * SX)
-    x4  = col_w - int(60  * SX)
+    if cache is not None:
+        hdr, rows, empty_surf = cache.get_lb_table_surfs(leaderboard, full)
 
-    # Header row
+        # Header
+        screen.blit(hdr, (tx, start_y))
+        pygame.draw.rect(screen, CLR["lb_border"], (tx, start_y, col_w, row_h), 1)
+
+        if empty_surf is not None:
+            screen.blit(empty_surf, (W // 2 - empty_surf.get_width() // 2,
+                                     start_y + row_h + int(8 * S)))
+            return
+
+        for i, rs in enumerate(rows):
+            ry = start_y + row_h * (i + 1)
+            screen.blit(rs, (tx, ry))
+            pygame.draw.rect(screen, (40, 80, 40), (tx, ry, col_w, row_h), 1)
+        return
+
+    # ── Fallback: no cache (backwards-compat) ────────────────────────────
+    font = F_SMALL if full else F_TINY
+
+    x1 = int(14  * SX)
+    x2 = int(70  * SX)
+    x3 = col_w - int(200 * SX)
+    x4 = col_w - int(60  * SX)
+
     hdr = pygame.Surface((col_w, row_h), pygame.SRCALPHA)
     hdr.fill((30, 70, 30, 220))
     screen.blit(hdr, (tx, start_y))
@@ -641,12 +812,12 @@ def draw_leaderboard(screen, bg, cache, leaderboard, t):
     screen.blit(bg, (0, 0))
     screen.blit(cache.ov_lb, (0, 0))
 
-    title  = F_LARGE.render("TOP 10 LEADERBOARD", True, CLR["gold"])
-    shadow = F_LARGE.render("TOP 10 LEADERBOARD", True, (50, 35, 0))
+    title  = cache.lbl_lb_title
+    shadow = cache.lbl_lb_title_shad
     screen.blit(shadow, (W // 2 - title.get_width() // 2 + int(3 * S), int(28 * S)))
     screen.blit(title,  (W // 2 - title.get_width() // 2,              int(25 * S)))
 
-    draw_lb_table(screen, leaderboard, int(95 * S), full=True)
+    draw_lb_table(screen, leaderboard, int(95 * S), full=True, cache=cache)
 
     cta = F_MED.render("SPACE to play again  |  TAB / ESC to home", True,
                        pulse_color(CLR["gold"], t))
@@ -660,8 +831,8 @@ def draw_gameover(screen, bg, cache, leaderboard, score, level, t):
     screen.blit(bg, (0, 0))
     screen.blit(cache.ov_gameover, (0, 0))
 
-    go   = F_HUGE.render("GAME OVER", True, CLR["red"])
-    shad = F_HUGE.render("GAME OVER", True, (80, 0, 0))
+    go   = cache.lbl_gameover
+    shad = cache.lbl_gameover_shad
     screen.blit(shad, (W // 2 - go.get_width() // 2 + int(4 * S), int(32 * S)))
     screen.blit(go,   (W // 2 - go.get_width() // 2,              int(28 * S)))
 
@@ -674,10 +845,10 @@ def draw_gameover(screen, bg, cache, leaderboard, score, level, t):
         msg = F_MED.render("Score some points to get on the leaderboard!", True, CLR["red"])
     screen.blit(msg, (W // 2 - msg.get_width() // 2, int(170 * S)))
 
-    lb_lbl = F_SMALL.render("Current Top 10:", True, (190, 210, 190))
+    lb_lbl = cache.lbl_go_top10
     screen.blit(lb_lbl, (W // 2 - lb_lbl.get_width() // 2, int(208 * S)))
 
-    draw_lb_table(screen, leaderboard, int(234 * S), full=False)
+    draw_lb_table(screen, leaderboard, int(234 * S), full=False, cache=cache)
 
     cta = F_MED.render("SPACE to play again  |  ESC to home", True,
                        pulse_color(CLR["gold"], t))
@@ -690,7 +861,7 @@ def draw_gameover(screen, bg, cache, leaderboard, score, level, t):
 def draw_start(screen, bg, cache, leaderboard, start_idle_t, t):
     screen.blit(bg, (0, 0))
 
-    # Heavy cinematic overlay (cached — avoids per-frame SRCALPHA allocation)
+    # Cinematic overlay (cached in HudCache — avoids per-frame SRCALPHA allocation)
     screen.blit(cache.ov_start, (0, 0))
 
     # Tree silhouette layer
@@ -716,30 +887,25 @@ def draw_start(screen, bg, cache, leaderboard, start_idle_t, t):
     icon_y = int(10 * S)
     pygame.draw.rect(screen, (18, 32, 18), (icon_x, icon_y, icon_s, icon_s), border_radius=int(4 * S))
     pygame.draw.rect(screen, (55, 85, 55), (icon_x, icon_y, icon_s, icon_s), 1, border_radius=int(4 * S))
-    qi = F_SMALL.render("?", True, (100, 140, 100))
+    qi = cache.lbl_question
     screen.blit(qi, (icon_x + icon_s // 2 - qi.get_width() // 2,
                      icon_y + icon_s // 2 - qi.get_height() // 2))
 
     if start_idle_t >= 5.0:
         screen.blit(cache.ctrl_panel, (icon_x + icon_s + int(6 * SX), icon_y - int(2 * S)))
         row_h = int(22 * S)
-        for row, txt in enumerate([
-            "Arrow keys / A-D  \u2014 move",
-            "3 lives  |  45 s per level",
-            "ESC \u2014 pause / home",
-        ]):
-            s = F_TINY.render(txt, True, (175, 210, 175))
+        for row, s in enumerate(cache.lbl_ctrl_hints):
             screen.blit(s, (icon_x + icon_s + int(12 * SX), icon_y + row * row_h))
 
     # Title
-    title  = F_HUGE.render("JUNGLE DODGE", True, CLR["gold"])
-    shadow = F_HUGE.render("JUNGLE DODGE", True, (28, 16, 0))
+    title  = cache.lbl_title
+    shadow = cache.lbl_title_shad
     cy_title = H // 2 - int(100 * S)
     screen.blit(shadow, (W // 2 - title.get_width() // 2 + int(4 * S), cy_title + int(4 * S)))
     screen.blit(title,  (W // 2 - title.get_width() // 2,              cy_title))
 
     # Tagline
-    tag = F_SMALL.render("SURVIVE. DODGE. OUTLAST.", True, (185, 210, 185))
+    tag = cache.lbl_tagline
     screen.blit(tag, (W // 2 - tag.get_width() // 2, cy_title + int(106 * S)))
 
     # Bordered CTA
@@ -754,7 +920,7 @@ def draw_start(screen, bg, cache, leaderboard, start_idle_t, t):
     screen.blit(cta_txt, (cta_x + int(22 * SX), cta_y + int(9 * S)))
 
     # TAB + close hints
-    lb_hint   = F_TINY.render("TAB \u2014 view leaderboard", True, (80, 110, 80))
-    quit_hint = F_TINY.render("Close window to quit", True, (55, 75, 55))
+    lb_hint   = cache.lbl_tab_hint
+    quit_hint = cache.lbl_quit_hint
     screen.blit(lb_hint,   (W // 2 - lb_hint.get_width()   // 2, cta_y + cta_h + int(10 * S)))
     screen.blit(quit_hint, (W // 2 - quit_hint.get_width() // 2, cta_y + cta_h + int(30 * S)))

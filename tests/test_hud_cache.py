@@ -19,8 +19,8 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
-from hud import HudCache, draw_hud, draw_wave_phase_bar, _WAVE_PHASE_LABELS
-from constants import CLR, W, H, MAX_LIVES
+from hud import HudCache, draw_hud, draw_wave_phase_bar, draw_lb_table, _WAVE_PHASE_LABELS
+from constants import CLR, W, H, MAX_LIVES, LEADERBOARD_SIZE
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -210,3 +210,105 @@ class TestDrawWavePhaseBarIntegration:
         """draw_wave_phase_bar should handle all phase time values."""
         for t in [0.0, 5.0, 15.0, 20.0, 25.0, 30.0, 37.0, 40.0, 44.0]:
             draw_wave_phase_bar(screen, t, cache)
+
+
+# ── Leaderboard table cache tests ────────────────────────────────────────────
+
+_SAMPLE_LB = [
+    {"name": "AAA", "score": 500, "level": 5},
+    {"name": "BBB", "score": 400, "level": 4},
+    {"name": "CCC", "score": 300, "level": 3},
+]
+
+_SAMPLE_LB_10 = [
+    {"name": chr(65 + i), "score": 1000 - i * 100, "level": 10 - i}
+    for i in range(10)
+]
+
+
+class TestLbTableCache:
+
+    def test_get_lb_table_surfs_returns_surfaces(self, cache):
+        """get_lb_table_surfs should return header, rows list, and None empty."""
+        hdr, rows, empty = cache.get_lb_table_surfs(_SAMPLE_LB, full=True)
+        assert isinstance(hdr, pygame.Surface)
+        assert len(rows) == 3
+        for r in rows:
+            assert isinstance(r, pygame.Surface)
+        assert empty is None
+
+    def test_get_lb_table_surfs_empty_board(self, cache):
+        """Empty leaderboard should return an empty_surf and no rows."""
+        hdr, rows, empty = cache.get_lb_table_surfs([], full=True)
+        assert isinstance(hdr, pygame.Surface)
+        assert len(rows) == 0
+        assert isinstance(empty, pygame.Surface)
+
+    def test_get_lb_table_surfs_none_board(self, cache):
+        """None leaderboard should behave like empty."""
+        hdr, rows, empty = cache.get_lb_table_surfs(None, full=True)
+        assert len(rows) == 0
+        assert empty is not None
+
+    def test_lb_surfs_cached_on_same_data(self, cache):
+        """Same leaderboard data should return identical cached objects."""
+        hdr1, rows1, _ = cache.get_lb_table_surfs(_SAMPLE_LB, full=True)
+        hdr2, rows2, _ = cache.get_lb_table_surfs(_SAMPLE_LB, full=True)
+        assert hdr1 is hdr2
+        assert rows1 is rows2
+
+    def test_lb_surfs_invalidated_on_data_change(self, cache):
+        """Different leaderboard data should produce new surfaces."""
+        hdr1, rows1, _ = cache.get_lb_table_surfs(_SAMPLE_LB, full=True)
+        changed = [{"name": "ZZZ", "score": 999, "level": 9}] + _SAMPLE_LB[1:]
+        hdr2, rows2, _ = cache.get_lb_table_surfs(changed, full=True)
+        assert hdr1 is not hdr2
+        assert rows1 is not rows2
+
+    def test_lb_full_and_compact_independent(self, cache):
+        """Full and compact modes should be cached independently."""
+        hdr_f, rows_f, _ = cache.get_lb_table_surfs(_SAMPLE_LB, full=True)
+        hdr_c, rows_c, _ = cache.get_lb_table_surfs(_SAMPLE_LB, full=False)
+        # Different mode → different surface sizes
+        assert hdr_f.get_height() != hdr_c.get_height()
+        # Both should be cached independently
+        hdr_f2, _, _ = cache.get_lb_table_surfs(_SAMPLE_LB, full=True)
+        assert hdr_f is hdr_f2
+
+    def test_lb_surfs_10_rows(self, cache):
+        """Full 10-entry leaderboard should produce 10 row surfaces."""
+        _, rows, _ = cache.get_lb_table_surfs(_SAMPLE_LB_10, full=True)
+        assert len(rows) == 10
+
+    def test_lb_no_srcalpha_surfaces(self, cache):
+        """Cached surfaces should use set_alpha, not SRCALPHA flag."""
+        hdr, rows, _ = cache.get_lb_table_surfs(_SAMPLE_LB, full=True)
+        # Non-SRCALPHA surfaces have no per-pixel alpha (get_masks()[3] == 0)
+        assert hdr.get_masks()[3] == 0, "Header should not use SRCALPHA"
+        for r in rows:
+            assert r.get_masks()[3] == 0, "Row should not use SRCALPHA"
+        # But they should have surface-level alpha set
+        assert hdr.get_alpha() == 220
+
+
+class TestDrawLbTableIntegration:
+
+    def test_draw_lb_table_with_cache(self, screen, cache):
+        """draw_lb_table with cache should run without errors."""
+        draw_lb_table(screen, _SAMPLE_LB, 100, full=True, cache=cache)
+
+    def test_draw_lb_table_with_cache_compact(self, screen, cache):
+        """draw_lb_table compact mode with cache should work."""
+        draw_lb_table(screen, _SAMPLE_LB, 100, full=False, cache=cache)
+
+    def test_draw_lb_table_with_cache_empty(self, screen, cache):
+        """draw_lb_table with empty leaderboard and cache should work."""
+        draw_lb_table(screen, [], 100, full=True, cache=cache)
+
+    def test_draw_lb_table_without_cache_backwards_compat(self, screen):
+        """draw_lb_table without cache param should still work (fallback)."""
+        draw_lb_table(screen, _SAMPLE_LB, 100, full=True)
+
+    def test_draw_lb_table_without_cache_empty(self, screen):
+        """draw_lb_table fallback with empty board should work."""
+        draw_lb_table(screen, [], 100, full=True)
