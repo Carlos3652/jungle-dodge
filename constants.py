@@ -6,7 +6,7 @@ import os
 import types
 import pygame
 
-if not pygame.font.get_init():
+if not getattr(pygame.font, "get_init", lambda: True)():
     pygame.font.init()
 
 W, H   = 3840, 2160
@@ -94,8 +94,6 @@ OBS_TYPES        = ("vine", "bomb", "spike", "boulder")
 OBS_WEIGHTS      = (3, 2, 3, 2)
 MAX_NAME_LEN     = 5
 LEADERBOARD_SIZE = 10
-
-LB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leaderboard.json")
 
 ST_START       = "start"
 ST_PLAYING     = "playing"

@@ -13,7 +13,7 @@ from constants import (
     W, H, SX, SY, S, FPS, GROUND_Y, PLAYER_FLOOR, DODGE_PTS,
     LEVEL_TIME, MAX_LIVES, STUN_SECS, IMMUNE_EXTRA, PLAYER_SPD,
     BASE_SPAWN, SPAWN_DEC, MIN_SPAWN, SPEED_SCALE, MAX_NAME_LEN,
-    LEADERBOARD_SIZE, LB_FILE,
+    LEADERBOARD_SIZE,
     ST_START, ST_PLAYING, ST_PAUSED, ST_LEVELUP, ST_GAMEOVER,
     ST_NAME_ENTRY, ST_LEADERBOARD,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
@@ -201,16 +201,6 @@ class TestStateConstants(unittest.TestCase):
         for st in [ST_START, ST_PLAYING, ST_PAUSED, ST_LEVELUP,
                    ST_GAMEOVER, ST_NAME_ENTRY, ST_LEADERBOARD]:
             self.assertTrue(st, f"State constant is empty: {st!r}")
-
-
-class TestLeaderboardFilePath(unittest.TestCase):
-    """Verify LB_FILE resolves to a valid location."""
-
-    def test_parent_directory_exists(self):
-        self.assertTrue(os.path.isdir(os.path.dirname(LB_FILE)))
-
-    def test_path_is_absolute(self):
-        self.assertTrue(os.path.isabs(LB_FILE))
 
 
 if __name__ == "__main__":

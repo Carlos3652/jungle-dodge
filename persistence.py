@@ -10,13 +10,13 @@ import json
 import os
 from datetime import date
 
+from constants import LEADERBOARD_SIZE
+
 # ── File paths (same directory as this module) ────────────────────────────────
 _DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(_DIR, "settings.json")
 LEADERBOARD_FILE = os.path.join(_DIR, "leaderboard.json")
 DAILY_FILE = os.path.join(_DIR, "daily_challenge.json")
-
-LEADERBOARD_SIZE = 10
 
 # ── Default schemas (spec Section 9.4) ────────────────────────────────────────
 DEFAULT_SETTINGS = {
@@ -174,6 +174,18 @@ class PersistenceManager:
 
         board.append(entry)
         board.sort(key=lambda e: e.get("score", 0), reverse=True)
+
+        # Determine rank via index-based lookup *before* slicing.
+        # Among tied scores, our entry (appended last) lands last due to
+        # stable sort.  Searching backwards finds it without relying on
+        # object identity, which can return None after the slice rebuilds
+        # the list.
+        rank = None
+        for i in range(len(board) - 1, -1, -1):
+            if board[i]["score"] == score:
+                rank = i + 1 if i < LEADERBOARD_SIZE else None
+                break
+
         board = board[:LEADERBOARD_SIZE]
         lb["boards"][difficulty] = board
 
@@ -183,12 +195,7 @@ class PersistenceManager:
             pb[difficulty] = score
 
         self._save(self.leaderboard_file, lb)
-
-        # Determine rank (1-based) or None
-        for i, e in enumerate(board):
-            if e is entry:
-                return i + 1
-        return None
+        return rank
 
     def is_top_score(self, score, difficulty="normal"):
         """Return True if *score* would qualify for the board."""
