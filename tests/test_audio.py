@@ -2,6 +2,7 @@
 
 import sys
 import os
+from unittest.mock import MagicMock, patch
 
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -137,3 +138,55 @@ class TestAudioManager:
         assert mgr._volumes["master"] == 0.5
         assert mgr._volumes["music"] == 0.7  # default
         assert mgr._volumes["sfx"] == 0.3
+
+    # --- Test 13: channel routing calls _mixer.Channel(idx).play ------
+
+    def test_play_routes_to_correct_channel(self):
+        """When channel is valid and mixer is initialised, play on that channel."""
+        mgr = AudioManager.get_instance()
+        mgr._initialized = True
+        mgr._muted = False
+
+        fake_sound = MagicMock()
+        mgr._sounds["SFX_HIT"] = fake_sound
+
+        mock_channel = MagicMock()
+        with patch("audio._mixer") as mock_mixer:
+            mock_mixer.Channel.return_value = mock_channel
+            mgr.play("SFX_HIT", channel="critical")
+
+        expected_idx = CHANNEL_MAP["critical"]
+        mock_mixer.Channel.assert_called_once_with(expected_idx)
+        mock_channel.play.assert_called_once_with(fake_sound)
+        # sound.play() should NOT have been called
+        fake_sound.play.assert_not_called()
+
+    # --- Test 14: fallback to sound.play when channel is None ---------
+
+    def test_play_falls_back_to_sound_play_without_channel(self):
+        """When no channel is given, fall back to sound.play()."""
+        mgr = AudioManager.get_instance()
+        mgr._initialized = True
+        mgr._muted = False
+
+        fake_sound = MagicMock()
+        mgr._sounds["SFX_HIT"] = fake_sound
+
+        mgr.play("SFX_HIT")
+
+        fake_sound.play.assert_called_once()
+
+    # --- Test 15: unknown channel falls back to sound.play ------------
+
+    def test_play_falls_back_for_unknown_channel(self):
+        """When channel name is not in CHANNEL_MAP, fall back to sound.play()."""
+        mgr = AudioManager.get_instance()
+        mgr._initialized = True
+        mgr._muted = False
+
+        fake_sound = MagicMock()
+        mgr._sounds["SFX_HIT"] = fake_sound
+
+        mgr.play("SFX_HIT", channel="nonexistent_channel")
+
+        fake_sound.play.assert_called_once()
