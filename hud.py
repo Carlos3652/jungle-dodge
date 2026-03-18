@@ -55,6 +55,60 @@ class HudCache:
         self.slot_empty = pygame.Surface((_sw, _sh), pygame.SRCALPHA)
         self.slot_empty.fill((10, 22, 10, 220))
 
+        # ── Pre-rendered static HUD labels (never change) ───────────────
+        self.lbl_score   = F_TINY.render("SCORE", True, CLR["olive"])
+        self.lbl_level   = F_TINY.render("LEVEL", True, CLR["olive"])
+        self.lbl_time    = F_TINY.render("TIME",  True, CLR["olive"])
+        self.lbl_lives   = F_TINY.render("LIVES", True, CLR["olive"])
+        self.lbl_stunned = F_TINY.render("STUNNED", True, CLR["teal"])
+
+        # Pre-rendered wave phase label surfaces
+        self.wave_labels = {
+            name: F_TINY.render(label, True, CLR["white"])
+            for name, label in _WAVE_PHASE_LABELS.items()
+        }
+
+        # ── Dynamic value cache (dirty-tracked) ────────────────────────
+        self._dyn_score      = None   # cached score int
+        self._dyn_score_shad = None
+        self._dyn_score_val  = None
+        self._dyn_level      = None
+        self._dyn_level_shad = None
+        self._dyn_level_val  = None
+        self._dyn_time_key   = None   # (display_t, is_red)
+        self._dyn_time_shad  = None
+        self._dyn_time_val   = None
+
+    # ── Dynamic value helpers with dirty-tracking ───────────────────────
+    def get_score_surfs(self, score):
+        """Return (shadow, value) surfaces for score, re-rendering only on change."""
+        if score != self._dyn_score:
+            self._dyn_score = score
+            s = str(score)
+            self._dyn_score_shad = F_SERIF.render(s, True, (18, 18, 12))
+            self._dyn_score_val  = F_SERIF.render(s, True, CLR["gold"])
+        return self._dyn_score_shad, self._dyn_score_val
+
+    def get_level_surfs(self, level):
+        """Return (shadow, value) surfaces for level, re-rendering only on change."""
+        if level != self._dyn_level:
+            self._dyn_level = level
+            s = str(level)
+            self._dyn_level_shad = F_SERIF.render(s, True, (18, 18, 12))
+            self._dyn_level_val  = F_SERIF.render(s, True, CLR["white"])
+        return self._dyn_level_shad, self._dyn_level_val
+
+    def get_time_surfs(self, display_t, is_red):
+        """Return (shadow, value) surfaces for time, re-rendering only on change."""
+        key = (display_t, is_red)
+        if key != self._dyn_time_key:
+            self._dyn_time_key = key
+            s = f"{display_t:02d}s"
+            tcol = CLR["red"] if is_red else CLR["white"]
+            self._dyn_time_shad = F_SERIF.render(s, True, (18, 18, 12))
+            self._dyn_time_val  = F_SERIF.render(s, True, tcol)
+        return self._dyn_time_shad, self._dyn_time_val
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Background — Jungle Cliff Face (Lost Temple Ruins)
@@ -247,7 +301,7 @@ def _get_wave_phase(level_t):
     return "calm", 1.0
 
 
-def draw_wave_phase_bar(screen, level_timer):
+def draw_wave_phase_bar(screen, level_timer, cache=None):
     """Draw the wave phase bar (full width, 12px above HUD panels)."""
     ph = int(72 * S)
     bar_h = int(12 * S)
@@ -290,12 +344,15 @@ def draw_wave_phase_bar(screen, level_timer):
             pygame.draw.line(screen, (40, 40, 40), (div_x, bar_y), (div_x, bar_y + bar_h), 1)
 
     # Phase label (centered on current phase segment)
-    label = _WAVE_PHASE_LABELS.get(phase_name, "")
-    if label:
+    if phase_name in _WAVE_PHASE_LABELS:
         for start, end, name, _mod in WAVE_PHASES:
             if name == phase_name and start <= level_timer < end:
                 seg_cx = int(W * (start + end) / 2 / total_time)
-                lbl_surf = F_TINY.render(label, True, CLR["white"])
+                if cache is not None and phase_name in cache.wave_labels:
+                    lbl_surf = cache.wave_labels[phase_name]
+                else:
+                    lbl_surf = F_TINY.render(
+                        _WAVE_PHASE_LABELS[phase_name], True, CLR["white"])
                 lbl_x = seg_cx - lbl_surf.get_width() // 2
                 lbl_y = bar_y + (bar_h - lbl_surf.get_height()) // 2
                 screen.blit(lbl_surf, (lbl_x, lbl_y))
@@ -319,10 +376,8 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
     pygame.draw.line(screen, CLR["vine_dk"], (0, py + int(2 * S)), (W, py + int(2 * S)), 1)
 
     # SCORE (left)
-    sc_lbl = F_TINY.render("SCORE", True, CLR["olive"])
-    screen.blit(sc_lbl, (int(14 * SX), py + int(6 * S)))
-    sc_shad = F_SERIF.render(str(score), True, (18, 18, 12))
-    sc_val  = F_SERIF.render(str(score), True, CLR["gold"])
+    screen.blit(cache.lbl_score, (int(14 * SX), py + int(6 * S)))
+    sc_shad, sc_val = cache.get_score_surfs(score)
     screen.blit(sc_shad, (int(15 * SX), py + int(28 * S)))
     screen.blit(sc_val,  (int(14 * SX), py + int(27 * S)))
 
@@ -356,11 +411,10 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
         screen.blit(badge_surf, (bx + pad_x, by + pad_y))
 
     # LEVEL (center-left)
-    lv_lbl = F_TINY.render("LEVEL", True, CLR["olive"])
+    lv_lbl = cache.lbl_level
     lv_label_x = W // 2 - lv_lbl.get_width() // 2 - int(60 * SX)
     screen.blit(lv_lbl, (lv_label_x, py + int(6 * S)))
-    lv_shad = F_SERIF.render(str(level), True, (18, 18, 12))
-    lv_val  = F_SERIF.render(str(level), True, CLR["white"])
+    lv_shad, lv_val = cache.get_level_surfs(level)
     lv_x = W // 2 - lv_val.get_width() // 2 - int(60 * SX)
     screen.blit(lv_shad, (lv_x + 1, py + int(28 * S)))
     screen.blit(lv_val,  (lv_x,     py + int(27 * S)))
@@ -368,17 +422,14 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
     # TIME (center-right)
     time_left  = max(0.0, LEVEL_TIME - level_timer)
     display_t  = math.ceil(time_left)
-    tcol = CLR["red"] if time_left < 10 else CLR["white"]
-    tm_lbl  = F_TINY.render("TIME", True, CLR["olive"])
-    screen.blit(tm_lbl, (W // 2 + int(40 * SX), py + int(6 * S)))
-    tm_shad = F_SERIF.render(f"{display_t:02d}s", True, (18, 18, 12))
-    tm_val  = F_SERIF.render(f"{display_t:02d}s", True, tcol)
+    is_red = time_left < 10
+    screen.blit(cache.lbl_time, (W // 2 + int(40 * SX), py + int(6 * S)))
+    tm_shad, tm_val = cache.get_time_surfs(display_t, is_red)
     screen.blit(tm_shad, (W // 2 + int(41 * SX), py + int(28 * S)))
     screen.blit(tm_val,  (W // 2 + int(40 * SX), py + int(27 * S)))
 
     # LIVES — skull icons (right)
-    lv2_lbl = F_TINY.render("LIVES", True, CLR["olive"])
-    screen.blit(lv2_lbl, (W - int(122 * SX), py + int(6 * S)))
+    screen.blit(cache.lbl_lives, (W - int(122 * SX), py + int(6 * S)))
     skull_gap = int(36 * S)
     for i in range(MAX_LIVES):
         sk_col = (190, 30, 30) if i < player.lives else (55, 55, 55)
@@ -399,7 +450,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
         if stun_bar_w > 0:
             pygame.draw.rect(screen, CLR["teal"], (bar_x, bar_y, stun_bar_w, bar_h), border_radius=brd)
         pygame.draw.rect(screen, (0, 140, 120), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
-        st = F_TINY.render("STUNNED", True, CLR["teal"])
+        st = cache.lbl_stunned
         screen.blit(st, (W // 2 - st.get_width() // 2, bar_y - int(16 * S)))
     else:
         prog   = 0.0 if is_levelup else min(1.0, level_timer / LEVEL_TIME)
@@ -421,7 +472,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
 
     # Wave phase bar (above HUD panel, only during gameplay)
     if not is_levelup:
-        draw_wave_phase_bar(screen, level_timer)
+        draw_wave_phase_bar(screen, level_timer, cache)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
