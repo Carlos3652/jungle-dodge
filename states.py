@@ -349,6 +349,11 @@ class StartScreenState(State):
 # ─────────────────────────────────────────────────────────────────────────────
 class PlayState(State):
 
+    @staticmethod
+    def _get_spawn_interval_modifier(level_t: float):
+        """Static alias for test compatibility (delegates to module function)."""
+        return _get_wave_phase_modifier(level_t)
+
     def handle_event(self, ctx, event):
         if event.type != pygame.KEYDOWN:
             return
@@ -414,12 +419,12 @@ class PlayState(State):
                 obs.did_hit = True
                 ctx.player.hit()
                 ctx.particles.pop_text(ctx.player.x, ctx.player.y - int(10 * S),
-                                       "OUCH!", CLR["red"], "hit_text")
+                                       "OUCH!", CLR["red"])
                 # Streak break
                 if ctx.streak >= STREAK_LOST_THRESHOLD:
                     ctx.particles.pop_text(
                         ctx.player.x, ctx.player.y - int(40 * S),
-                        "STREAK LOST", CLR["red"], "hit_text")
+                        "STREAK LOST", CLR["red"])
                 ctx.streak = 0
                 break
 

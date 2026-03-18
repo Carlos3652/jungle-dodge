@@ -14,7 +14,10 @@ import pygame
 # Ensure pygame is initialized before importing game modules
 pygame.init()
 
-from states import PlayState, GameContext, GameStateManager
+from unittest.mock import MagicMock
+from states import PlayState, GameContext, GameStateManager, _spawn_dual, _spawn_rate
+from persistence import PersistenceManager
+from particles import ParticleSystem
 from constants import WAVE_PHASES, LEVEL_TIME
 
 
@@ -24,7 +27,11 @@ def ctx():
     screen  = pygame.Surface((100, 100))
     display = pygame.Surface((100, 100))
     clock   = pygame.time.Clock()
-    return GameContext(screen, display, clock)
+    persist = MagicMock(spec=PersistenceManager)
+    persist.get_board = MagicMock(return_value=[])
+    c = GameContext(screen=screen, display=display, clock=clock, persistence=persist)
+    c.hud_cache = MagicMock()
+    return c
 
 
 @pytest.fixture
@@ -107,30 +114,26 @@ class TestGetSpawnIntervalModifier:
 class TestWaveSpawnBehavior:
     """Integration tests for wave rhythm affecting spawn behavior."""
 
-    def test_crescendo_spawns_two_obstacles(self, mgr):
+    def test_crescendo_spawns_two_obstacles(self, ctx):
         """During crescendo phase, spawning should produce two obstacles."""
-        mgr.push(PlayState(mgr))
-        ctx = mgr.ctx
+        from states import _new_game
+        _new_game(ctx)
         ctx.obstacles = []
-
-        play = mgr.current
-        play._spawn_dual()
-
+        _spawn_dual(ctx)
         assert len(ctx.obstacles) == 2, \
             f"Expected 2 obstacles from dual spawn, got {len(ctx.obstacles)}"
 
-    def test_crescendo_obstacles_are_separated(self, mgr):
+    def test_crescendo_obstacles_are_separated(self, ctx):
         """Dual-spawned obstacles should have meaningful separation."""
         from constants import W
-        mgr.push(PlayState(mgr))
-        ctx = mgr.ctx
+        from states import _new_game
+        _new_game(ctx)
 
         # Run multiple trials — most should show some separation
         separations = []
         for _ in range(20):
             ctx.obstacles = []
-            play = mgr.current
-            play._spawn_dual()
+            _spawn_dual(ctx)
             assert len(ctx.obstacles) == 2
             sep = abs(ctx.obstacles[0].x - ctx.obstacles[1].x)
             separations.append(sep)
@@ -141,22 +144,22 @@ class TestWaveSpawnBehavior:
         assert avg_sep > 100, \
             f"Average separation {avg_sep} is too small — obstacles not being separated"
 
-    def test_push_phase_increases_spawn_frequency(self, mgr):
+    def test_push_phase_increases_spawn_frequency(self, ctx):
         """During push phase, modified spawn rate should be less than base rate."""
-        mgr.push(PlayState(mgr))
-        play = mgr.current
-        base_rate = play._spawn_rate()
+        from states import _new_game
+        _new_game(ctx)
+        base_rate = _spawn_rate(ctx.level)
 
         # Push modifier is 0.75
         mod, _ = PlayState._get_spawn_interval_modifier(16.0)
         modified = base_rate * mod
         assert modified < base_rate
 
-    def test_breather_phase_decreases_spawn_frequency(self, mgr):
+    def test_breather_phase_decreases_spawn_frequency(self, ctx):
         """During breather phase, modified spawn rate should be more than base rate."""
-        mgr.push(PlayState(mgr))
-        play = mgr.current
-        base_rate = play._spawn_rate()
+        from states import _new_game
+        _new_game(ctx)
+        base_rate = _spawn_rate(ctx.level)
 
         # Breather modifier is 1.40
         mod, _ = PlayState._get_spawn_interval_modifier(24.0)
