@@ -81,3 +81,20 @@ class TestParticleSystem:
         assert second == 2
         assert ps.active_count == 8
         assert ps.pool_count == 0
+
+    def test_emitted_particles_alpha_normalised(self):
+        """All emitted particles must have alpha in [0.0, 1.0]."""
+        ps = ParticleSystem(max_particles=20)
+        ps.emit(
+            100, 100,
+            count=10,
+            lifetime=1.0,
+            speed_range=(10, 50),
+            alpha=1.0,
+            alpha_end=0.0,
+        )
+        for p in ps._active:
+            assert 0.0 <= p.alpha <= 1.0, (
+                f"Particle alpha {p.alpha} outside normalised range [0.0, 1.0]"
+            )
+
