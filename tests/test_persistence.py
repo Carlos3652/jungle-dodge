@@ -1,15 +1,8 @@
 """
 Tests for persistence.py (task jd-03).
 
-Eight tests:
-  1. test_submit_score_returns_correct_rank
-  2. test_submit_score_caps_at_10
-  3. test_load_missing_file_returns_defaults
-  4. test_migrate_adds_missing_keys
-  5. test_daily_challenge_regenerates_on_new_date
-  6. test_personal_best_survives_leaderboard_reset
-  7. test_legacy_flat_array_migration
-  8. test_corrupt_file_returns_defaults
+Twenty tests covering submit_score ranking, board capacity, file
+handling, migration, daily challenges, settings, ties, and edge cases.
 """
 
 import json
@@ -290,3 +283,121 @@ def test_empty_name_defaults_to_dashes(tmp_dir):
     tmp_dir.submit_score("", 1000, 5)
     board = tmp_dir.get_board("normal")
     assert board[0]["name"] == "-----"
+
+
+# ── 14. submit_score returns rank on tied scores ────────────────────────────
+def test_submit_score_returns_rank_on_ties(tmp_dir):
+    """When multiple entries share the same score, submit_score must still
+    return a valid rank instead of None (the old `is` identity bug).
+    Stable sort means each new tied entry lands after existing ones."""
+    for i in range(LEADERBOARD_SIZE):
+        rank = tmp_dir.submit_score(f"P{i:02d}", 5000, 10)
+        # Stable sort: new entry appended last among equal scores
+        assert rank == i + 1, f"Expected rank {i + 1} for tied score, got {rank}"
+
+
+def test_submit_score_tie_on_full_board(tmp_dir):
+    """A score tying with the lowest entry on a full board should still get
+    a rank (not None) if it qualifies."""
+    # Fill with scores 1000..10000
+    for i in range(LEADERBOARD_SIZE):
+        tmp_dir.submit_score(f"P{i:02d}", (i + 1) * 1000, 1)
+
+    # Submit a score that ties with the highest (10000) — stable sort puts
+    # the new entry after the existing 10000, so rank is 2
+    rank = tmp_dir.submit_score("TIE", 10000, 1)
+    assert rank == 2
+
+    # Submit a score that ties with a mid-range entry (5000)
+    rank = tmp_dir.submit_score("MID", 5000, 1)
+    assert rank is not None
+    assert isinstance(rank, int)
+
+
+def test_submit_score_tie_with_lowest_returns_none(tmp_dir):
+    """A score tying with the lowest on a full board should return None
+    because the new entry is appended last, sorts after the existing one
+    (stable sort), and gets sliced off."""
+    # Fill board: scores 1000, 2000, ..., 10000
+    for i in range(LEADERBOARD_SIZE):
+        tmp_dir.submit_score(f"P{i:02d}", (i + 1) * 1000, 1)
+
+    # Lowest on board is 1000. Submit another 1000 — it should NOT survive
+    # the slice (stable sort keeps the old 1000 at index 9, new at 10 → cut).
+    rank = tmp_dir.submit_score("DUP", 1000, 1)
+    assert rank is None, (
+        "Tying the lowest score on a full board must not award a rank"
+    )
+
+    # Board should still have exactly LEADERBOARD_SIZE entries
+    board = tmp_dir.get_board("normal")
+    assert len(board) == LEADERBOARD_SIZE
+    # The original P00 entry (score 1000) should still be last, not DUP
+    assert board[-1]["name"] == "P00"
+
+
+def test_submit_score_below_board_returns_none(tmp_dir):
+    """A score that doesn't make it onto a full board should return None."""
+    for i in range(LEADERBOARD_SIZE):
+        tmp_dir.submit_score(f"P{i:02d}", (i + 1) * 1000, 1)
+
+    # Lowest on board is 1000; submitting 500 should not qualify
+    rank = tmp_dir.submit_score("LOW", 500, 1)
+    assert rank is None
+
+
+# ── 17. tie at cutoff gets a rank ────────────────────────────────────────────
+def test_submit_score_tie_at_cutoff_gets_rank(tmp_dir):
+    """A score tying at exactly position LEADERBOARD_SIZE (the last slot)
+    should still receive a valid rank, not None."""
+    # Fill board with LEADERBOARD_SIZE - 1 entries, all different scores
+    for i in range(LEADERBOARD_SIZE - 1):
+        tmp_dir.submit_score(f"P{i:02d}", (i + 2) * 1000, 1)
+
+    # The lowest score on board is 2000.  Submit a tie at 2000 —
+    # it should land at exactly position LEADERBOARD_SIZE (the cutoff).
+    rank = tmp_dir.submit_score("CUT", 2000, 1)
+    assert rank == LEADERBOARD_SIZE, (
+        f"Tying the lowest on a not-full board should give rank "
+        f"{LEADERBOARD_SIZE}, got {rank}"
+    )
+
+
+# ── 18. pushed-off score returns None ────────────────────────────────────────
+def test_submit_score_pushed_off_full_board_returns_none(tmp_dir):
+    """When every entry on a full board shares the same score, a new
+    submission with that score is appended last by stable sort and pushed
+    off the board — submit_score must return None."""
+    # Fill with LEADERBOARD_SIZE identical scores
+    for i in range(LEADERBOARD_SIZE):
+        rank = tmp_dir.submit_score(f"P{i:02d}", 5000, 10)
+        assert rank == i + 1
+
+    # 11th identical score: stable sort places it at index LEADERBOARD_SIZE
+    # (past the cutoff) → should return None
+    rank = tmp_dir.submit_score("OFF", 5000, 10)
+    assert rank is None, (
+        "An identical score on a full board should be pushed off and return None"
+    )
+
+    # Board size unchanged, and the newcomer should NOT be present
+    board = tmp_dir.get_board("normal")
+    assert len(board) == LEADERBOARD_SIZE
+    assert all(e["name"] != "OFF" for e in board)
+
+
+def test_submit_score_duplicate_entry_identity(tmp_dir):
+    """Two identical entries (same name/score/level/date) must each get the
+    correct rank via identity lookup, not value-equality."""
+    rank1 = tmp_dir.submit_score("AAA", 5000, 10)
+    assert rank1 == 1
+
+    # Second submission with the exact same fields on the same day produces
+    # a value-equal dict.  The identity-based lookup must still return the
+    # correct rank for the *new* entry (rank 2, after the first).
+    rank2 = tmp_dir.submit_score("AAA", 5000, 10)
+    assert rank2 == 2
+
+    board = tmp_dir.get_board("normal")
+    assert len(board) == 2
+    assert board[0]["score"] == board[1]["score"] == 5000
