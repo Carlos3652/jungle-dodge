@@ -32,6 +32,7 @@ from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder
 from particles import ParticleSystem
 from persistence import PersistenceManager
 import hud
+from hud import HudCache
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,6 +68,9 @@ class GameContext:
 
     # Background
     bg: Optional[pygame.Surface] = None
+
+    # Pre-allocated HUD surface cache
+    hud_cache: Optional[HudCache] = None
 
     # Fullscreen
     fullscreen: bool = True
@@ -299,7 +303,8 @@ def _draw_scene(ctx: GameContext) -> None:
     ctx.screen.blit(ctx.bg, (0, 0))
     for obs in ctx.obstacles:
         obs.draw(ctx.screen)
-    ctx.player.draw(ctx.screen, ctx.particles)
+    if ctx.player is not None:
+        ctx.player.draw(ctx.screen, ctx.particles)
     ctx.particles.draw(ctx.screen)
 
 
@@ -336,7 +341,7 @@ class StartScreenState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
-        hud.draw_start_screen(ctx.screen, t, ctx.bg, ctx.leaderboard, ctx.start_idle_t)
+        hud.draw_start(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, ctx.start_idle_t, t)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -450,8 +455,8 @@ class PlayState(State):
 
     def draw(self, ctx):
         _draw_scene(ctx)
-        hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, is_levelup=False, streak=ctx.streak)
+        hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
+                     ctx.player, streak=ctx.streak, is_levelup=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -482,9 +487,10 @@ class PauseState(State):
     def draw(self, ctx):
         # Draw game underneath
         _draw_scene(ctx)
-        hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, is_levelup=False, streak=ctx.streak)
-        hud.draw_pause_overlay(ctx.screen)
+        if ctx.player is not None:
+            hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
+                         ctx.player, streak=ctx.streak, is_levelup=False)
+        hud.draw_pause_overlay(ctx.screen, ctx.hud_cache)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -512,9 +518,10 @@ class LevelUpState(State):
 
     def draw(self, ctx):
         _draw_scene(ctx)
-        hud.draw_hud(ctx.screen, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, is_levelup=True, streak=ctx.streak)
-        hud.draw_levelup_overlay(ctx.screen, ctx.level, ctx.score)
+        if ctx.player is not None:
+            hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
+                         ctx.player, streak=ctx.streak, is_levelup=True)
+        hud.draw_levelup_overlay(ctx.screen, ctx.hud_cache, ctx.level, ctx.score)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -547,8 +554,8 @@ class GameOverState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
-        hud.draw_gameover(ctx.screen, t, ctx.bg, ctx.score, ctx.level,
-                          ctx.leaderboard)
+        hud.draw_gameover(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard,
+                          ctx.score, ctx.level, t)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -589,8 +596,8 @@ class NameEntryState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
-        hud.draw_name_entry(ctx.screen, t, ctx.score, ctx.level,
-                            ctx.name_input, ctx.cursor_on)
+        hud.draw_name_entry(ctx.screen, ctx.hud_cache,
+                            ctx.name_input, ctx.cursor_on, ctx.score, ctx.level, t)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -632,4 +639,4 @@ class LeaderboardState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
-        hud.draw_leaderboard(ctx.screen, t, ctx.bg, ctx.leaderboard)
+        hud.draw_leaderboard(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, t)

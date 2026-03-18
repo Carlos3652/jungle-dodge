@@ -10,7 +10,7 @@ from constants import W, H
 from persistence import PersistenceManager
 from particles import ParticleSystem
 from states import GameContext, GameStateManager, StartScreenState
-from hud import build_background
+from hud import build_background, HudCache
 
 
 def main():
@@ -28,6 +28,7 @@ def main():
         persistence=PersistenceManager(),
         particles=ParticleSystem(),
         bg=build_background(),
+        hud_cache=HudCache(),
     )
     ctx.leaderboard = ctx.persistence.get_board("normal")
 
