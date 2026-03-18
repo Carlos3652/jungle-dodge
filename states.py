@@ -26,6 +26,7 @@ from constants import (
     OBS_TYPES, OBS_WEIGHTS,
     MAX_NAME_LEN,
     STREAK_TIERS, STREAK_LOST_THRESHOLD,
+    WAVE_PHASES, CRESCENDO_SEPARATION,
 )
 from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder
 from particles import ParticleSystem
@@ -192,16 +193,31 @@ def _new_game(ctx: GameContext) -> None:
 def get_streak_multiplier(streak: int) -> float:
     """Return the score multiplier for the current streak count.
 
-    Tiers (from STREAK_TIERS):
-        0-4  → 1.0x
-        5-9  → 1.5x
-        10-19 → 2.0x
-        20+  → 3.0x
+    Uses STREAK_TIERS 4-tuple format: (min_dodges, multiplier, label, color_key).
+    Tiers: 0-4 -> 1.0x, 5-9 -> 1.5x, 10-19 -> 2.0x, 20+ -> 3.0x.
     """
-    for threshold, mult in STREAK_TIERS:
-        if streak >= threshold:
-            return mult
-    return 1.0
+    result = STREAK_TIERS[0][1]
+    for min_dodges, mult, _label, _color in STREAK_TIERS:
+        if streak >= min_dodges:
+            result = mult
+    return result
+
+
+def streak_multiplier(streak: int) -> float:
+    """Alias for get_streak_multiplier — used by tests and hud module."""
+    return get_streak_multiplier(streak)
+
+
+def streak_tier_info(streak: int):
+    """Return (multiplier, label, color_key) for the current streak.
+
+    label/color_key are None at the base tier (no badge shown).
+    """
+    result = STREAK_TIERS[0]
+    for tier in STREAK_TIERS:
+        if streak >= tier[0]:
+            result = tier
+    return result[1], result[2], result[3]
 
 
 def _reset_level(ctx: GameContext) -> None:
@@ -240,12 +256,50 @@ def _spawn(ctx: GameContext) -> None:
     ctx.obstacles.append(cls(ctx.level, spawn_x=sx))
 
 
+def _get_wave_phase_modifier(level_t: float):
+    """Return (spawn_interval_modifier, phase_name) for level_t seconds.
+
+    modifier < 1.0 means faster spawns (push), > 1.0 means slower (breather).
+    """
+    for start, end, name, mod in WAVE_PHASES:
+        if start <= level_t < end:
+            return mod, name
+    return 1.0, "calm"
+
+
+def _spawn_dual(ctx: GameContext) -> None:
+    """Spawn two obstacles simultaneously with CRESCENDO_SEPARATION minimum gap."""
+    cls_map = {"vine": Vine, "bomb": Bomb, "spike": Spike, "boulder": Boulder}
+    margins = {
+        "vine":    int(50  * SX),
+        "bomb":    int(60  * SX),
+        "spike":   int(40  * SX),
+        "boulder": int(80  * SX),
+    }
+    kind1 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
+    kind2 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
+    sx1 = _spawn_x_near_player(ctx.player, margins[kind1], ctx.level)
+    ctx.obstacles.append(cls_map[kind1](ctx.level, spawn_x=sx1))
+    min_sep = int(W * CRESCENDO_SEPARATION)
+    margin2 = margins[kind2]
+    if sx1 + min_sep <= W - margin2:
+        sx2 = random.randint(sx1 + min_sep, W - margin2)
+    elif sx1 - min_sep >= margin2:
+        sx2 = random.randint(margin2, sx1 - min_sep)
+    else:
+        if sx1 < W // 2:
+            sx2 = random.randint(W // 2 + margin2, W - margin2)
+        else:
+            sx2 = random.randint(margin2, W // 2 - margin2)
+    ctx.obstacles.append(cls_map[kind2](ctx.level, spawn_x=sx2))
+
+
 def _draw_scene(ctx: GameContext) -> None:
     """Draw background, obstacles, player, and particles."""
     ctx.screen.blit(ctx.bg, (0, 0))
     for obs in ctx.obstacles:
         obs.draw(ctx.screen)
-    ctx.player.draw(ctx.screen)
+    ctx.player.draw(ctx.screen, ctx.particles)
     ctx.particles.draw(ctx.screen)
 
 
@@ -336,11 +390,18 @@ class PlayState(State):
             ctx.manager.replace(LevelUpState())
             return
 
-        # Spawn
+        # Wave rhythm — get current phase modifier
+        wave_mod, wave_phase = _get_wave_phase_modifier(ctx.level_timer)
+
+        # Spawn (apply wave modifier to base interval)
         ctx.spawn_timer += dt
-        if ctx.spawn_timer >= _spawn_rate(ctx.level):
+        modified_rate = _spawn_rate(ctx.level) * wave_mod
+        if ctx.spawn_timer >= modified_rate:
             ctx.spawn_timer = 0.0
-            _spawn(ctx)
+            if wave_phase == "crescendo":
+                _spawn_dual(ctx)
+            else:
+                _spawn(ctx)
 
         # Hit detection FIRST (BUG-01/02)
         for obs in ctx.obstacles:
@@ -369,8 +430,10 @@ class PlayState(State):
                 multiplier = get_streak_multiplier(ctx.streak)
                 pts = int(DODGE_PTS * multiplier)
                 ctx.score += pts
-                pop_y = GROUND_Y - obs.exp_r - int(10 * S) if isinstance(obs, Bomb) else GROUND_Y - int(30 * S)
-                ctx.particles.pop_text(obs.x, pop_y, f"+{pts}", CLR["gold"])
+                pop_y = (GROUND_Y - obs.exp_r - int(10 * S)
+                         if isinstance(obs, Bomb) else GROUND_Y - int(30 * S))
+                label = f"+{pts}" if multiplier <= 1.0 else f"+{pts} x{multiplier:g}"
+                ctx.particles.pop_text(obs.x, pop_y, label, CLR["gold"])
 
         ctx.obstacles = [o for o in ctx.obstacles if o.alive]
         ctx.particles.update(dt)

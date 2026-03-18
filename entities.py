@@ -116,15 +116,8 @@ class Player:
 
         self.tick_timers(dt)
 
-    def _draw_body(self, surf, cx, top_y, stunned):
-        """Draw player body parts at given coordinates.
-
-        Args:
-            surf: Surface to draw on.
-            cx: Center X coordinate.
-            top_y: Top Y coordinate of the player sprite.
-            stunned: Whether the player is currently stunned.
-        """
+    def _draw_character(self, surf, cx, top_y, stunned=False):
+        """Draw the explorer character at the given center-x and top-y."""
         boty = top_y + self.PH
         sw   = math.sin(self.walk_t) * int(9 * S) if self.walk_t else 0
 
@@ -185,7 +178,8 @@ class Player:
                 pygame.draw.circle(surf, CLR["yellow"], (sx, sy), o4)
                 pygame.draw.circle(surf, CLR["white"],  (sx, sy), o2)
 
-    def draw(self, surf):
+    def draw(self, surf, particles=None):
+        """Draw player to surf. Pass an optional ParticleSystem for roll trail effects."""
         stunned = self.is_stunned()
         if stunned and int(self.flash_t) % 2 == 1:
             return
@@ -202,13 +196,24 @@ class Player:
 
         # ── Roll tilt transform ─────────────────────────────────────────────
         if self.rolling:
+            # Emit trail particles during roll
+            if particles is not None:
+                trail_col = (180, 220, 255)
+                for _ in range(2):
+                    px = self.x - self.roll_dir * int(15 * S) + random.uniform(-5, 5) * S
+                    py = self.y + self.PH * 0.6 + random.uniform(-5, 5) * S
+                    particles.emit(px, py, count=1,
+                                   vx=-self.roll_dir * random.uniform(20, 60) * S,
+                                   vy=random.uniform(-30, 30) * S,
+                                   size=random.uniform(3, 6) * S,
+                                   color=trail_col, lifetime=0.2)
             # Render player to a temporary surface, tilt 45°, squash Y to 0.85
             pw_full = self.PW + int(20 * S)  # extra margin for tilt
             ph_full = self.PH + int(20 * S)
             tmp = pygame.Surface((pw_full, ph_full), pygame.SRCALPHA)
             offset_x = pw_full // 2
             offset_y = int(10 * S)
-            self._draw_body(tmp, offset_x, offset_y, stunned)
+            self._draw_character(tmp, offset_x, offset_y, stunned)
             # Rotate 45° in roll direction
             angle = -45 * self.roll_dir
             rotated = pygame.transform.rotate(tmp, angle)
@@ -220,7 +225,7 @@ class Player:
             surf.blit(squashed, (self.x - sw2 // 2, self.y + self.PH // 2 - sh2 // 2))
             return
 
-        self._draw_body(surf, self.x, self.y, stunned)
+        self._draw_character(surf, self.x, self.y, stunned)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ from constants import (
     LEVEL_TIME, MAX_LIVES, STUN_SECS,
     MAX_NAME_LEN, LEADERBOARD_SIZE,
     STREAK_TIERS,
+    WAVE_PHASES,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
 
@@ -229,25 +230,108 @@ def draw_tree_silhouettes(screen):
             pygame.draw.circle(screen, sil, (tx, GROUND_Y - dy), r)
 
 
+def draw_game(screen, bg, obstacles, player, particles):
+    """Draw background, obstacles, player, and particles to screen."""
+    screen.blit(bg, (0, 0))
+    for obs in obstacles:
+        obs.draw(screen)
+    player.draw(screen, particles)
+    particles.draw(screen)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  HUD — Stone Tablet (bottom, Variant A)
 # ─────────────────────────────────────────────────────────────────────────────
-def _streak_tier_info(streak):
-    """Return (multiplier, tier_name, color) for the given streak count.
 
-    Tiers:
-        0-4  → 1.0x, no badge
-        5-9  → 1.5x, bronze
-        10-19 → 2.0x, silver
-        20+  → 3.0x, gold
+# Badge pill colors keyed by tier label
+_BADGE_COLORS = {
+    "bronze": {"bg": (90, 60, 20),  "border": CLR["bronze"], "text": CLR["bronze"]},
+    "silver": {"bg": (60, 60, 70),  "border": CLR["silver"], "text": CLR["silver"]},
+    "gold":   {"bg": (80, 60,  0),  "border": CLR["gold"],   "text": CLR["gold"]},
+}
+
+# Wave phase bar colors and labels
+_WAVE_PHASE_COLORS = {
+    "calm":      (60, 120,  60),
+    "push":      (200,  80,  40),
+    "breather":  (60, 140, 180),
+    "crescendo": (220,  40,  40),
+}
+
+_WAVE_PHASE_LABELS = {
+    "calm":      "CALM",
+    "push":      "PUSH",
+    "breather":  "BREATHER",
+    "crescendo": "CRESCENDO",
+}
+
+
+def _streak_tier_info(streak):
+    """Return (multiplier, tier_label, color_key) for the given streak count.
+
+    Uses the 4-tuple STREAK_TIERS: (min_dodges, multiplier, label, color_key).
+    label/color_key are None at the base tier (no badge shown).
     """
-    if streak >= 20:
-        return 3.0, "gold", CLR["gold"]
-    elif streak >= 10:
-        return 2.0, "silver", CLR["silver"]
-    elif streak >= 5:
-        return 1.5, "bronze", CLR["bronze"]
-    return 1.0, None, None
+    result = STREAK_TIERS[0]
+    for tier in STREAK_TIERS:
+        if streak >= tier[0]:
+            result = tier
+    return result[1], result[2], result[3]
+
+
+def _get_wave_phase(level_t):
+    """Return (phase_name, phase_progress 0-1) for level_t seconds."""
+    for start, end, name, _mod in WAVE_PHASES:
+        if start <= level_t < end:
+            progress = (level_t - start) / (end - start)
+            return name, progress
+    return "calm", 1.0
+
+
+def draw_wave_phase_bar(screen, level_timer):
+    """Draw the wave phase segmented bar above the HUD panel."""
+    ph    = int(72 * S)
+    bar_h = int(12 * S)
+    bar_y = H - ph - bar_h - int(4 * S)
+
+    phase_name, phase_progress = _get_wave_phase(level_timer)
+
+    pygame.draw.rect(screen, (20, 20, 20), (0, bar_y, W, bar_h))
+
+    total_time = LEVEL_TIME
+    for start, end, name, _mod in WAVE_PHASES:
+        seg_x     = int(W * start / total_time)
+        seg_w     = int(W * (end - start) / total_time)
+        seg_color = _WAVE_PHASE_COLORS.get(name, (60, 120, 60))
+
+        if level_timer >= end:
+            pygame.draw.rect(screen, seg_color, (seg_x, bar_y, seg_w, bar_h))
+        elif level_timer >= start:
+            fill_w = int(seg_w * phase_progress)
+            dim = tuple(c // 4 for c in seg_color)
+            pygame.draw.rect(screen, dim, (seg_x, bar_y, seg_w, bar_h))
+            if fill_w > 0:
+                pygame.draw.rect(screen, seg_color, (seg_x, bar_y, fill_w, bar_h))
+        else:
+            dim = tuple(c // 6 for c in seg_color)
+            pygame.draw.rect(screen, dim, (seg_x, bar_y, seg_w, bar_h))
+
+    for start, _end, _name, _mod in WAVE_PHASES:
+        div_x = int(W * start / total_time)
+        if div_x > 0:
+            pygame.draw.line(screen, (40, 40, 40), (div_x, bar_y), (div_x, bar_y + bar_h), 1)
+
+    label = _WAVE_PHASE_LABELS.get(phase_name, "")
+    if label:
+        for start, end, name, _mod in WAVE_PHASES:
+            if name == phase_name and start <= level_timer < end:
+                seg_cx  = int(W * (start + end) / 2 / total_time)
+                lbl_surf = F_TINY.render(label, True, CLR["white"])
+                screen.blit(lbl_surf, (seg_cx - lbl_surf.get_width() // 2,
+                                       bar_y + (bar_h - lbl_surf.get_height()) // 2))
+                break
+
+    pygame.draw.rect(screen, (80, 80, 80), (0, bar_y, W, bar_h), 1)
 
 
 def draw_hud(screen, score, level, level_timer, player, is_levelup=False, streak=0):
@@ -270,33 +354,32 @@ def draw_hud(screen, score, level, level_timer, player, is_levelup=False, streak
     screen.blit(sc_shad, (int(15 * SX), py + int(28 * S)))
     screen.blit(sc_val,  (int(14 * SX), py + int(27 * S)))
 
-    # STREAK BADGE (right of score) — only visible at 5+ streak
-    mult, tier_name, tier_color = _streak_tier_info(streak)
-    if tier_name is not None:
-        ticks = pygame.time.get_ticks()
-        badge_text = f"{streak} x{mult:g}"
-        badge_surf = F_TINY.render(badge_text, True, tier_color)
-        bw = badge_surf.get_width() + int(16 * SX)
-        bh = badge_surf.get_height() + int(6 * S)
-        # Position right of the score value
-        badge_x = sc_val.get_width() + int(24 * SX)
-        badge_y = py + int(25 * S)
-        # Pulse size at gold tier
-        if tier_name == "gold":
-            pulse = 1.0 + 0.06 * math.sin(ticks * 0.006)
-            bw = int(bw * pulse)
-            bh = int(bh * pulse)
-        # Draw pill background
-        pygame.draw.rect(screen, (20, 20, 14),
-                         (badge_x, badge_y, bw, bh),
+    # STREAK BADGE (right of score) — only visible at tier >= 5 dodges
+    mult, tier_label, color_key = _streak_tier_info(streak)
+    if tier_label is not None and color_key in _BADGE_COLORS:
+        bc = _BADGE_COLORS[color_key]
+        badge_str  = f"x{mult:g}  {streak}"
+        badge_surf = F_TINY.render(badge_str, True, bc["text"])
+        pad_x = int(8 * SX)
+        pad_y = int(3 * S)
+        bw = badge_surf.get_width() + pad_x * 2
+        bh = badge_surf.get_height() + pad_y * 2
+        bx = sc_val.get_width() + int(24 * SX)
+        by = py + int(27 * S)
+        if color_key == "gold":
+            t = pygame.time.get_ticks()
+            pulse      = 0.85 + 0.15 * math.sin(t * 0.006)
+            bg_col     = tuple(min(255, int(c * pulse)) for c in bc["bg"])
+            border_col = tuple(min(255, int(c * pulse)) for c in bc["border"])
+        else:
+            bg_col     = bc["bg"]
+            border_col = bc["border"]
+        pill = pygame.Surface((bw, bh), pygame.SRCALPHA)
+        pill.fill((*bg_col, 220))
+        pygame.draw.rect(pill, border_col, (0, 0, bw, bh), max(1, int(2 * S)),
                          border_radius=int(bh // 2))
-        pygame.draw.rect(screen, tier_color,
-                         (badge_x, badge_y, bw, bh),
-                         max(1, int(2 * S)),
-                         border_radius=int(bh // 2))
-        screen.blit(badge_surf,
-                    (badge_x + (bw - badge_surf.get_width()) // 2,
-                     badge_y + (bh - badge_surf.get_height()) // 2))
+        screen.blit(pill, (bx, by))
+        screen.blit(badge_surf, (bx + pad_x, by + pad_y))
 
     # LEVEL (center-left)
     lv_lbl = F_TINY.render("LEVEL", True, CLR["olive"])
@@ -361,6 +444,10 @@ def draw_hud(screen, score, level, level_timer, player, is_levelup=False, streak
                                  (lx + leaf_s, bar_y + bar_h // 2),
                                  (lx - leaf_s, bar_y + bar_h)])
         pygame.draw.rect(screen, CLR["vine_dk"], (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
+
+    # Wave phase bar (above HUD panel, only during active gameplay)
+    if not is_levelup:
+        draw_wave_phase_bar(screen, level_timer)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
