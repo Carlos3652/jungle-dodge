@@ -123,8 +123,13 @@ class AudioManager:
             else:
                 self._stems[i] = None
 
-    def play(self, name: str, volume: float | None = None):
+    def play(self, name: str, volume: float | None = None,
+             channel: str | None = None):
         """Play the SFX identified by *name* (e.g. ``"SFX_HIT"``).
+
+        If *channel* is a key in :data:`CHANNEL_MAP` and the mixer is
+        initialised, the sound is played on that specific channel.
+        Otherwise falls back to ``sound.play()``.
 
         No-op when muted, when the mixer is uninitialised, or when
         *name* is not in the loaded sound catalogue.
@@ -138,7 +143,11 @@ class AudioManager:
         effective_vol *= self._volumes["sfx"] * self._volumes["master"]
         sound.set_volume(max(0.0, min(1.0, effective_vol)))
         try:
-            sound.play()
+            idx = CHANNEL_MAP.get(channel) if channel is not None else None
+            if idx is not None:
+                _mixer.Channel(idx).play(sound)
+            else:
+                sound.play()
         except Exception:
             pass
 
