@@ -51,12 +51,15 @@ class GameContext:
     player: Optional[Player] = None
     obstacles: List = field(default_factory=list)
     score: int = 0
+    streak: int = 0
     level: int = 1
     level_timer: float = 0.0
     spawn_timer: float = 0.0
     levelup_t: float = 0.0
     leaderboard: List = field(default_factory=list)
-    streak: int = 0
+
+    # HUD cache (lazy-init)
+    hud_cache: Optional[hud.HudCache] = None
 
     # Name entry
     name_input: str = ""
@@ -187,10 +190,13 @@ class GameStateManager:
 def _new_game(ctx: GameContext) -> None:
     """Reset all gameplay state for a fresh game."""
     ctx.score        = 0
+    ctx.streak       = 0
     ctx.level        = 1
     ctx.streak       = 0
     ctx.player       = Player()
     ctx.start_idle_t = 0.0
+    if ctx.hud_cache is None:
+        ctx.hud_cache = hud.HudCache()
     _reset_level(ctx)
 
 
@@ -341,6 +347,8 @@ class StartScreenState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
+        if ctx.hud_cache is None:
+            ctx.hud_cache = hud.HudCache()
         hud.draw_start(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, ctx.start_idle_t, t)
 
 
@@ -389,7 +397,7 @@ class PlayState(State):
                 drag=3.0,
                 size=float(int(5 * S)),
                 size_end=0.0,
-                alpha=180.0,
+                alpha=1.0,
                 alpha_end=0.0,
                 shape="circle",
             )
@@ -490,11 +498,12 @@ class PauseState(State):
         pass
 
     def draw(self, ctx):
+        if ctx.player is None:
+            return
         # Draw game underneath
         _draw_scene(ctx)
-        if ctx.player is not None:
-            hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                         ctx.player, streak=ctx.streak, is_levelup=False)
+        hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
+                     ctx.player, streak=ctx.streak, is_levelup=False)
         hud.draw_pause_overlay(ctx.screen, ctx.hud_cache)
 
 
@@ -516,16 +525,18 @@ class LevelUpState(State):
         ctx.levelup_t -= dt
         # Keep player timers ticking (delegates to Player.tick_timers to
         # avoid duplicating stun/immune countdown logic — review issue #5).
-        ctx.player.tick_timers(dt)
+        if ctx.player is not None:
+            ctx.player.tick_timers(dt)
         if ctx.levelup_t <= 0:
             _reset_level(ctx)
             ctx.manager.replace(PlayState())
 
     def draw(self, ctx):
+        if ctx.player is None:
+            return
         _draw_scene(ctx)
-        if ctx.player is not None:
-            hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                         ctx.player, streak=ctx.streak, is_levelup=True)
+        hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
+                     ctx.player, streak=ctx.streak, is_levelup=True)
         hud.draw_levelup_overlay(ctx.screen, ctx.hud_cache, ctx.level, ctx.score)
 
 
@@ -559,6 +570,8 @@ class GameOverState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
+        if ctx.hud_cache is None:
+            ctx.hud_cache = hud.HudCache()
         hud.draw_gameover(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard,
                           ctx.score, ctx.level, t)
 
@@ -601,8 +614,10 @@ class NameEntryState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
-        hud.draw_name_entry(ctx.screen, ctx.hud_cache,
-                            ctx.name_input, ctx.cursor_on, ctx.score, ctx.level, t)
+        if ctx.hud_cache is None:
+            ctx.hud_cache = hud.HudCache()
+        hud.draw_name_entry(ctx.screen, ctx.hud_cache, ctx.name_input,
+                            ctx.cursor_on, ctx.score, ctx.level, t)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -644,4 +659,6 @@ class LeaderboardState(State):
 
     def draw(self, ctx):
         t = pygame.time.get_ticks()
+        if ctx.hud_cache is None:
+            ctx.hud_cache = hud.HudCache()
         hud.draw_leaderboard(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, t)
