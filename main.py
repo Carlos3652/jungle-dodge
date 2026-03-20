@@ -11,6 +11,7 @@ from persistence import PersistenceManager
 from particles import ParticleSystem
 from states import GameContext, GameStateManager, StartScreenState
 from hud import build_background, HudCache
+from audio import AudioManager
 
 
 def main():
@@ -21,6 +22,9 @@ def main():
     pygame.mouse.set_visible(False)
     clock = pygame.time.Clock()
 
+    audio = AudioManager.get_instance()
+    audio.load_all()
+
     ctx = GameContext(
         screen=screen,
         display=display,
@@ -29,6 +33,7 @@ def main():
         particles=ParticleSystem(),
         bg=build_background(),
         hud_cache=HudCache(),
+        audio=audio,
     )
     ctx.leaderboard = ctx.persistence.get_board("normal")
 

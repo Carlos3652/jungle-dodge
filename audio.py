@@ -78,9 +78,11 @@ class AudioManager:
     # Public API
     # ------------------------------------------------------------------
 
-    def load_all(self):
+    def load_all(self, theme: str = "jungle"):
         """Load every .wav in sfx/ and every stem .ogg in music/.
 
+        *theme* is passed to :meth:`load_stems` to select which music stems
+        are loaded (e.g. ``"jungle"`` or ``"space"``).
         Silently skips missing directories or files.
         """
         if not _HAS_MIXER:
@@ -104,7 +106,7 @@ class AudioManager:
                         pass
 
         # Music stems
-        self.load_stems("jungle")
+        self.load_stems(theme)
 
     def load_stems(self, theme_prefix: str = "jungle"):
         """Load music stems for *theme_prefix* (e.g. ``jungle_stem_0.ogg``).

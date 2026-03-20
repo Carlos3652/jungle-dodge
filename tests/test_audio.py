@@ -206,3 +206,35 @@ class TestAudioManager:
             mock_mixer.Channel.side_effect = RuntimeError("channel error")
             # Should not raise
             mgr.play("SFX_HIT", channel="critical")
+
+    # --- Test 17: load_all passes theme parameter to load_stems -------
+
+    def test_load_all_passes_theme_to_load_stems(self):
+        """load_all(theme) must forward theme to load_stems()."""
+        mgr = AudioManager.get_instance()
+
+        with patch.object(mgr, "load_stems") as mock_load_stems, \
+             patch("audio._mixer") as mock_mixer:
+            # Make mixer init succeed so load_all proceeds past the guard
+            mock_mixer.init.return_value = None
+            mock_mixer.set_num_channels.return_value = None
+            # Pretend SFX dir doesn't exist so we skip that branch cleanly
+            with patch("audio.os.path.isdir", return_value=False):
+                mgr.load_all("space")
+
+        mock_load_stems.assert_called_once_with("space")
+
+    # --- Test 18: load_all defaults to "jungle" theme -----------------
+
+    def test_load_all_defaults_to_jungle_theme(self):
+        """load_all() with no argument must pass 'jungle' to load_stems()."""
+        mgr = AudioManager.get_instance()
+
+        with patch.object(mgr, "load_stems") as mock_load_stems, \
+             patch("audio._mixer") as mock_mixer:
+            mock_mixer.init.return_value = None
+            mock_mixer.set_num_channels.return_value = None
+            with patch("audio.os.path.isdir", return_value=False):
+                mgr.load_all()
+
+        mock_load_stems.assert_called_once_with("jungle")

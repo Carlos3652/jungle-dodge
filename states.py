@@ -72,6 +72,9 @@ class GameContext:
     # Background
     bg: Optional[pygame.Surface] = None
 
+    # Audio manager (wired in main.py; None = audio unavailable)
+    audio: Optional[object] = None
+
     # Pre-allocated HUD surface cache
     hud_cache: Optional[HudCache] = None
 
