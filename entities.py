@@ -48,6 +48,14 @@ class Player:
     def is_stunned(self):
         return self.stun_t > 0
 
+    def tick_timers(self, dt):
+        """Advance stun/immune/flash timers without processing movement."""
+        if self.stun_t > 0:
+            self.stun_t  = max(0.0, self.stun_t - dt)
+            self.flash_t += dt * 12
+        if self.immune_t > 0:
+            self.immune_t = max(0.0, self.immune_t - dt)
+
     def is_hit_immune(self):
         """True during stun AND brief grace period after (CRIT-03)."""
         return self.immune_t > 0

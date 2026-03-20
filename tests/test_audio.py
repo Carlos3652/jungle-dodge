@@ -190,3 +190,19 @@ class TestAudioManager:
         mgr.play("SFX_HIT", channel="nonexistent_channel")
 
         fake_sound.play.assert_called_once()
+
+    # --- Test 16: channel routing exception falls back gracefully ------
+
+    def test_play_survives_channel_exception(self):
+        """When _mixer.Channel() raises, play() should not propagate."""
+        mgr = AudioManager.get_instance()
+        mgr._initialized = True
+        mgr._muted = False
+
+        fake_sound = MagicMock()
+        mgr._sounds["SFX_HIT"] = fake_sound
+
+        with patch("audio._mixer") as mock_mixer:
+            mock_mixer.Channel.side_effect = RuntimeError("channel error")
+            # Should not raise
+            mgr.play("SFX_HIT", channel="critical")

@@ -188,9 +188,23 @@ from states import StartScreenState, LeaderboardState
 
 
 def _key_event(key):
-    """Create a minimal KEYDOWN event namespace."""
+    """Create a minimal KEYDOWN event namespace.
+
+    Use the pygame module that states.py actually imported so that
+    ``event.type == pygame.KEYDOWN`` holds even when the real pygame
+    was loaded before our mock (full-suite runs).
+    """
     import types as _t
-    ev = _t.SimpleNamespace(type=_pg.KEYDOWN, key=key, unicode="")
+    import states as _states_mod
+    # states.py may hold a reference to the *real* pygame if another test
+    # (e.g. test_null_player_guard) imported it first.  We must match that.
+    _states_pg = getattr(_states_mod, "pygame", None)
+    _keydown = getattr(_states_pg, "KEYDOWN", _pg.KEYDOWN) if _states_pg else _pg.KEYDOWN
+    ev = _t.SimpleNamespace(
+        type=_keydown,
+        key=key,
+        unicode="",
+    )
     return ev
 
 
@@ -233,6 +247,8 @@ class TestTabRoundTrip(unittest.TestCase):
 class TestEscFromLeaderboardGoesToStart(unittest.TestCase):
     def test_esc_from_leaderboard_goes_to_start(self):
         ctx = _make_ctx()
+        # Pre-set hud_cache so _new_game() doesn't try to create a real HudCache
+        ctx.hud_cache = MagicMock()
         mgr = GameStateManager(ctx)
         lb = LeaderboardState()
         mgr.push(lb)
