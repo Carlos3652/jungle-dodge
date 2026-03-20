@@ -12,6 +12,7 @@ from particles import ParticleSystem
 from states import GameContext, GameStateManager, StartScreenState
 from hud import build_background, HudCache
 from audio import AudioManager
+from themes import get_theme
 
 
 def main():
@@ -25,6 +26,8 @@ def main():
     audio = AudioManager.get_instance()
     audio.load_all()
 
+    theme = get_theme()
+
     ctx = GameContext(
         screen=screen,
         display=display,
@@ -34,6 +37,7 @@ def main():
         bg=build_background(),
         hud_cache=HudCache(),
         audio=audio,
+        theme=theme,
     )
     ctx.leaderboard = ctx.persistence.get_board("normal")
 

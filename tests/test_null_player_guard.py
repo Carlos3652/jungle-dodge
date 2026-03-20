@@ -212,7 +212,7 @@ def test_draw_game_draws_player_when_present():
     player = MagicMock()
     particles = MagicMock()
     hud.draw_game(screen, bg, [], player, particles)
-    player.draw.assert_called_once_with(screen, particles)
+    player.draw.assert_called_once_with(screen, particles, theme=None)
 
 
 # ── hud.draw_hud() with player=None ─────────────────────────────────────────

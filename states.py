@@ -19,7 +19,6 @@ import pygame
 from constants import (
     W, H, SX, SY, S, FPS,
     GROUND_Y,
-    CLR,
     LEVEL_TIME, MAX_LIVES, STUN_SECS,
     DODGE_PTS,
     BASE_SPAWN, SPAWN_DEC, MIN_SPAWN, SPEED_SCALE,
@@ -33,6 +32,7 @@ from particles import ParticleSystem
 from persistence import PersistenceManager
 import hud
 from hud import HudCache
+import themes
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,6 +74,9 @@ class GameContext:
 
     # Audio manager (wired in main.py; None = audio unavailable)
     audio: Optional[object] = None
+
+    # Active visual theme (dict from themes.py)
+    theme: Optional[dict] = None
 
     # Pre-allocated HUD surface cache
     hud_cache: Optional[HudCache] = None
@@ -311,9 +314,9 @@ def _draw_scene(ctx: GameContext) -> None:
     """Draw background, obstacles, player, and particles."""
     ctx.screen.blit(ctx.bg, (0, 0))
     for obs in ctx.obstacles:
-        obs.draw(ctx.screen)
+        obs.draw(ctx.screen, theme=ctx.theme)
     if ctx.player is not None:
-        ctx.player.draw(ctx.screen, ctx.particles)
+        ctx.player.draw(ctx.screen, ctx.particles, theme=ctx.theme)
     ctx.particles.draw(ctx.screen)
 
 
@@ -352,7 +355,7 @@ class StartScreenState(State):
         t = pygame.time.get_ticks()
         if ctx.hud_cache is None:
             ctx.hud_cache = hud.HudCache()
-        hud.draw_start(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, ctx.start_idle_t, t)
+        hud.draw_start(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, ctx.start_idle_t, t, theme=ctx.theme)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,7 +395,7 @@ class PlayState(State):
             ctx.particles.emit(
                 trail_x, trail_y,
                 count=2,
-                color=CLR["teal"],
+                color=themes.get_color("roll_ready", ctx.theme),
                 lifetime=0.25,
                 speed_range=(40 * SX, 120 * SX),
                 spread=math.pi,
@@ -430,12 +433,12 @@ class PlayState(State):
                 obs.did_hit = True
                 ctx.player.hit()
                 ctx.particles.pop_text(ctx.player.x, ctx.player.y - int(10 * S),
-                                       "OUCH!", CLR["red"])
+                                       "OUCH!", themes.get_color("warning_color", ctx.theme))
                 # Streak break
                 if ctx.streak >= STREAK_LOST_THRESHOLD:
                     ctx.particles.pop_text(
                         ctx.player.x, ctx.player.y - int(40 * S),
-                        "STREAK LOST", CLR["red"])
+                        "STREAK LOST", themes.get_color("warning_color", ctx.theme))
                 ctx.streak = 0
                 break
 
@@ -454,7 +457,7 @@ class PlayState(State):
                 pop_y = (GROUND_Y - obs.exp_r - int(10 * S)
                          if isinstance(obs, Bomb) else GROUND_Y - int(30 * S))
                 label = f"+{pts}" if multiplier <= 1.0 else f"+{pts} x{multiplier:g}"
-                ctx.particles.pop_text(obs.x, pop_y, label, CLR["gold"])
+                ctx.particles.pop_text(obs.x, pop_y, label, themes.get_color("hud_primary", ctx.theme))
 
         ctx.obstacles = [o for o in ctx.obstacles if o.alive]
         ctx.particles.update(dt)
@@ -472,7 +475,7 @@ class PlayState(State):
     def draw(self, ctx):
         _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, streak=ctx.streak, is_levelup=False)
+                     ctx.player, streak=ctx.streak, is_levelup=False, theme=ctx.theme)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -506,7 +509,7 @@ class PauseState(State):
         # Draw game underneath
         _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, streak=ctx.streak, is_levelup=False)
+                     ctx.player, streak=ctx.streak, is_levelup=False, theme=ctx.theme)
         hud.draw_pause_overlay(ctx.screen, ctx.hud_cache)
 
 
@@ -539,8 +542,8 @@ class LevelUpState(State):
             return
         _draw_scene(ctx)
         hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, streak=ctx.streak, is_levelup=True)
-        hud.draw_levelup_overlay(ctx.screen, ctx.hud_cache, ctx.level, ctx.score)
+                     ctx.player, streak=ctx.streak, is_levelup=True, theme=ctx.theme)
+        hud.draw_levelup_overlay(ctx.screen, ctx.hud_cache, ctx.level, ctx.score, theme=ctx.theme)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -576,7 +579,7 @@ class GameOverState(State):
         if ctx.hud_cache is None:
             ctx.hud_cache = hud.HudCache()
         hud.draw_gameover(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard,
-                          ctx.score, ctx.level, t)
+                          ctx.score, ctx.level, t, theme=ctx.theme)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -620,7 +623,7 @@ class NameEntryState(State):
         if ctx.hud_cache is None:
             ctx.hud_cache = hud.HudCache()
         hud.draw_name_entry(ctx.screen, ctx.hud_cache, ctx.name_input,
-                            ctx.cursor_on, ctx.score, ctx.level, t)
+                            ctx.cursor_on, ctx.score, ctx.level, t, theme=ctx.theme)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -664,4 +667,4 @@ class LeaderboardState(State):
         t = pygame.time.get_ticks()
         if ctx.hud_cache is None:
             ctx.hud_cache = hud.HudCache()
-        hud.draw_leaderboard(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, t)
+        hud.draw_leaderboard(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, t, theme=ctx.theme)

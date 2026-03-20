@@ -19,6 +19,7 @@ from constants import (
     WAVE_PHASES,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
 )
+from themes import get_color
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
@@ -33,14 +34,14 @@ def pulse_color(base_col, ticks, speed=0.004, lo=0.65):
 class HudCache:
     """Pre-allocated overlay and HUD surfaces."""
 
-    def __init__(self):
+    def __init__(self, theme=None):
         # Controls hint panel (start screen)
         self.ctrl_panel = pygame.Surface((int(250 * SX), int(80 * S)), pygame.SRCALPHA)
         self.ctrl_panel.fill((0, 18, 0, 210))
 
         # Stone HUD bar
         self.hud_panel = pygame.Surface((W, int(72 * S)), pygame.SRCALPHA)
-        self.hud_panel.fill((*CLR["stone"], 238))
+        self.hud_panel.fill((*get_color("hud_bg", theme), 238))
 
         # Full-screen overlays
         self.ov_start = pygame.Surface((W, H), pygame.SRCALPHA)
@@ -66,29 +67,32 @@ class HudCache:
         self.slot_empty.fill((10, 22, 10, 220))
 
         # ── Pre-rendered static HUD labels (never change) ───────────────
-        self.lbl_score   = F_TINY.render("SCORE", True, CLR["olive"])
-        self.lbl_level   = F_TINY.render("LEVEL", True, CLR["olive"])
-        self.lbl_time    = F_TINY.render("TIME",  True, CLR["olive"])
-        self.lbl_lives   = F_TINY.render("LIVES", True, CLR["olive"])
-        self.lbl_stunned = F_TINY.render("STUNNED", True, CLR["teal"])
+        lbl_col = get_color("hud_label", theme)
+        self.lbl_score   = F_TINY.render("SCORE", True, lbl_col)
+        self.lbl_level   = F_TINY.render("LEVEL", True, lbl_col)
+        self.lbl_time    = F_TINY.render("TIME",  True, lbl_col)
+        self.lbl_lives   = F_TINY.render("LIVES", True, lbl_col)
+        self.lbl_stunned = F_TINY.render("STUNNED", True, get_color("roll_ready", theme))
 
         # Pre-rendered wave phase label surfaces
+        hud_text = get_color("hud_text", theme)
         self.wave_labels = {
-            name: F_TINY.render(label, True, CLR["white"])
+            name: F_TINY.render(label, True, hud_text)
             for name, label in _WAVE_PHASE_LABELS.items()
         }
 
         # ── Pre-rendered overlay / screen static labels ───────────────
         # Pause overlay
-        self.lbl_paused       = F_LARGE.render("PAUSED", True, CLR["white"])
+        self.lbl_paused       = F_LARGE.render("PAUSED", True, hud_text)
         self.lbl_pause_h1     = F_MED.render("SPACE \u2014 resume", True, (195, 215, 195))
         self.lbl_pause_h2     = F_MED.render("ESC \u2014 return to home screen", True, (195, 215, 195))
 
         # Level-up overlay
-        self.lbl_levelup_sub  = F_MED.render("Things are getting faster...", True, CLR["white"])
+        self.lbl_levelup_sub  = F_MED.render("Things are getting faster...", True, hud_text)
 
         # Start screen
-        self.lbl_title        = F_HUGE.render("JUNGLE DODGE", True, CLR["gold"])
+        gold_col = get_color("streak_gold", theme)
+        self.lbl_title        = F_HUGE.render("JUNGLE DODGE", True, gold_col)
         self.lbl_title_shad   = F_HUGE.render("JUNGLE DODGE", True, (28, 16, 0))
         self.lbl_tagline      = F_SMALL.render("SURVIVE. DODGE. OUTLAST.", True, (185, 210, 185))
         self.lbl_tab_hint     = F_TINY.render("TAB \u2014 view leaderboard", True, (80, 110, 80))
@@ -103,16 +107,17 @@ class HudCache:
         ]
 
         # Game-over screen
-        self.lbl_gameover       = F_HUGE.render("GAME OVER", True, CLR["red"])
+        warning_col = get_color("warning_color", theme)
+        self.lbl_gameover       = F_HUGE.render("GAME OVER", True, warning_col)
         self.lbl_gameover_shad  = F_HUGE.render("GAME OVER", True, (80, 0, 0))
         self.lbl_go_top10       = F_SMALL.render("Current Top 10:", True, (190, 210, 190))
 
         # Leaderboard screen
-        self.lbl_lb_title       = F_LARGE.render("TOP 10 LEADERBOARD", True, CLR["gold"])
+        self.lbl_lb_title       = F_LARGE.render("TOP 10 LEADERBOARD", True, gold_col)
         self.lbl_lb_title_shad  = F_LARGE.render("TOP 10 LEADERBOARD", True, (50, 35, 0))
 
         # Name-entry screen
-        self.lbl_ne_title       = F_LARGE.render("YOU MADE THE TOP 10!", True, CLR["gold"])
+        self.lbl_ne_title       = F_LARGE.render("YOU MADE THE TOP 10!", True, gold_col)
         self.lbl_ne_title_shad  = F_LARGE.render("YOU MADE THE TOP 10!", True, (50, 30, 0))
         self.lbl_ne_prompt      = F_MED.render("Enter your name:", True, (190, 210, 190))
         self.lbl_ne_hint1       = F_SMALL.render(
@@ -123,6 +128,9 @@ class HudCache:
         # ── Pre-rendered skull icons (2 states: alive / lost) ────────
         self.skull_alive = F_SKULL.render("\u2620", True, (190, 30, 30))
         self.skull_lost  = F_SKULL.render("\u2620", True, (55, 55, 55))
+
+        # Store theme for dynamic rendering methods
+        self._theme = theme
 
         # ── Dynamic value cache (dirty-tracked) ────────────────────────
         self._dyn_score      = None   # cached score int
@@ -154,7 +162,7 @@ class HudCache:
             self._dyn_score = score
             s = str(score)
             self._dyn_score_shad = F_SERIF.render(s, True, (18, 18, 12))
-            self._dyn_score_val  = F_SERIF.render(s, True, CLR["gold"])
+            self._dyn_score_val  = F_SERIF.render(s, True, get_color("streak_gold", self._theme))
         return self._dyn_score_shad, self._dyn_score_val
 
     def get_level_surfs(self, level):
@@ -163,7 +171,7 @@ class HudCache:
             self._dyn_level = level
             s = str(level)
             self._dyn_level_shad = F_SERIF.render(s, True, (18, 18, 12))
-            self._dyn_level_val  = F_SERIF.render(s, True, CLR["white"])
+            self._dyn_level_val  = F_SERIF.render(s, True, get_color("hud_text", self._theme))
         return self._dyn_level_shad, self._dyn_level_val
 
     def get_time_surfs(self, display_t, is_red):
@@ -172,7 +180,7 @@ class HudCache:
         if key != self._dyn_time_key:
             self._dyn_time_key = key
             s = f"{display_t:02d}s"
-            tcol = CLR["red"] if is_red else CLR["white"]
+            tcol = get_color("warning_color", self._theme) if is_red else get_color("hud_text", self._theme)
             self._dyn_time_shad = F_SERIF.render(s, True, (18, 18, 12))
             self._dyn_time_val  = F_SERIF.render(s, True, tcol)
         return self._dyn_time_shad, self._dyn_time_val
@@ -223,8 +231,13 @@ class HudCache:
         hdr = pygame.Surface((col_w, row_h))
         hdr.fill((30, 70, 30))
         hdr.set_alpha(220)
+        gold_c   = get_color("streak_gold", self._theme)
+        silver_c = get_color("streak_silver", self._theme)
+        bronze_c = get_color("streak_bronze", self._theme)
+        white_c  = get_color("hud_text", self._theme)
+        lb_row_a = get_color("lb_player_row", self._theme)
         for text, x_off in [("#", x1), ("NAME", x2), ("SCORE", x3), ("LVL", x4)]:
-            s = font.render(text, True, CLR["gold"])
+            s = font.render(text, True, gold_c)
             hdr.blit(s, (x_off, (row_h - s.get_height()) // 2))
 
         # Empty message
@@ -234,21 +247,21 @@ class HudCache:
 
         # Row surfaces
         medal_bg = [(60, 45, 0), (35, 35, 45), (45, 25, 10)]
-        medal_fc = [CLR["gold"], CLR["silver"], CLR["bronze"]]
+        medal_fc = [gold_c, silver_c, bronze_c]
         rows = []
         for i, entry in enumerate((leaderboard or [])[:LEADERBOARD_SIZE]):
             bg_col = medal_bg[i] if i < 3 else (
-                CLR["lb_row_a"] if (i - 3) % 2 == 0 else CLR["lb_row_b"])
+                lb_row_a if (i - 3) % 2 == 0 else CLR["lb_row_b"])
             rs = pygame.Surface((col_w, row_h))
             rs.fill(bg_col)
             rs.set_alpha(220)
 
-            fc = medal_fc[i] if i < 3 else CLR["white"]
+            fc = medal_fc[i] if i < 3 else white_c
             cy = (row_h - font.get_height()) // 2
             for text, x_off, color in [
                 (str(i + 1),                  x1, fc),
-                (entry.get("name", "?"),      x2, CLR["white"]),
-                (str(entry.get("score", 0)),  x3, CLR["gold"]),
+                (entry.get("name", "?"),      x2, white_c),
+                (str(entry.get("score", 0)),  x3, gold_c),
                 (str(entry.get("level", "-")),x4, (160, 200, 160)),
             ]:
                 s = font.render(text, True, color)
@@ -273,7 +286,7 @@ class HudCache:
 # ─────────────────────────────────────────────────────────────────────────────
 #  Background — Jungle Cliff Face (Lost Temple Ruins)
 # ─────────────────────────────────────────────────────────────────────────────
-def build_background():
+def build_background(theme=None):
     """Build and return the static background surface."""
     bg  = pygame.Surface((W, H))
     sy  = GROUND_Y / 340
@@ -345,7 +358,7 @@ def build_background():
 
     # 5. Vine cascades
     VDK = (26, 96, 16)
-    VBR = CLR["vine"]
+    VBR = get_color("accent_color", theme)
     def vine(pts, col, w):
         pygame.draw.lines(bg, col, False, [(svx(x), svy(y)) for x,y in pts], w)
     vine([(0,0),(8,40),(4,80),(11,120),(4,160),(9,200),(3,245),(9,285),(4,340)], VDK, 9)
@@ -383,7 +396,7 @@ def build_background():
         bg.blit(cs, (svx(cx) - crxs, max(0, svy(csv_y) - crys)))
 
     # 7. Ground
-    pygame.draw.rect(bg, CLR["ground"], (0, GROUND_Y, W, H - GROUND_Y))
+    pygame.draw.rect(bg, get_color("ground_base", theme), (0, GROUND_Y, W, H - GROUND_Y))
     FLAG = (26, 18, 8)
     flagstones = [(0,120),(120,140),(260,110),(370,160),(530,130),(660,120),(780,120)]
     for fx, fw in flagstones:
@@ -391,7 +404,7 @@ def build_background():
     for pts in [[(60,3),(70,28),(62,50)],[(340,3),(352,25),(344,50)],[(620,3),(610,30),(622,50)]]:
         pygame.draw.lines(bg, (12,10,6), False,
             [(svx(x), GROUND_Y + int(y * S)) for x,y in pts], 1)
-    pygame.draw.rect(bg, CLR["grass"], (0, GROUND_Y, W, int(14 * S)))
+    pygame.draw.rect(bg, get_color("grass_main", theme), (0, GROUND_Y, W, int(14 * S)))
 
     # 8. Ground mist
     mist_h = int(80 * S)
@@ -424,14 +437,14 @@ def draw_tree_silhouettes(screen):
             pygame.draw.circle(screen, sil, (tx, GROUND_Y - dy), r)
 
 
-def draw_game(screen, bg, obstacles, player, particles):
+def draw_game(screen, bg, obstacles, player, particles, theme=None):
     """Draw background, obstacles, player, and particles to screen."""
     screen.blit(bg, (0, 0))
     for obs in obstacles:
-        obs.draw(screen)
+        obs.draw(screen, theme=theme)
     if player is None:
         return
-    player.draw(screen, particles)
+    player.draw(screen, particles, theme=theme)
     particles.draw(screen)
 
 
@@ -439,12 +452,16 @@ def draw_game(screen, bg, obstacles, player, particles):
 #  HUD — Stone Tablet (bottom, Variant A)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Badge pill colors keyed by tier label
-_BADGE_COLORS = {
-    "bronze": {"bg": (90, 60, 20),  "border": CLR["bronze"], "text": CLR["bronze"]},
-    "silver": {"bg": (60, 60, 70),  "border": CLR["silver"], "text": CLR["silver"]},
-    "gold":   {"bg": (80, 60,  0),  "border": CLR["gold"],   "text": CLR["gold"]},
-}
+# Badge pill colors — built lazily per-theme via _get_badge_colors()
+_BADGE_COLORS_CACHE = {}
+
+def _get_badge_colors(theme=None):
+    """Return badge color dict, using theme colors."""
+    return {
+        "bronze": {"bg": (90, 60, 20),  "border": get_color("streak_bronze", theme), "text": get_color("streak_bronze", theme)},
+        "silver": {"bg": (60, 60, 70),  "border": get_color("streak_silver", theme), "text": get_color("streak_silver", theme)},
+        "gold":   {"bg": (80, 60,  0),  "border": get_color("streak_gold", theme),   "text": get_color("streak_gold", theme)},
+    }
 
 # Wave phase bar colors and labels
 _WAVE_PHASE_COLORS = {
@@ -529,7 +546,7 @@ def draw_wave_phase_bar(screen, level_timer, cache=None):
                     lbl_surf = cache.wave_labels[phase_name]
                 else:
                     lbl_surf = F_TINY.render(
-                        _WAVE_PHASE_LABELS[phase_name], True, CLR["white"])
+                        _WAVE_PHASE_LABELS[phase_name], True, get_color("hud_text"))
                 lbl_x = seg_cx - lbl_surf.get_width() // 2
                 lbl_y = bar_y + (bar_h - lbl_surf.get_height()) // 2
                 screen.blit(lbl_surf, (lbl_x, lbl_y))
@@ -538,7 +555,7 @@ def draw_wave_phase_bar(screen, level_timer, cache=None):
     pygame.draw.rect(screen, (80, 80, 80), (0, bar_y, W, bar_h), 1)
 
 
-def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False):
+def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False, theme=None):
     """Draw the bottom HUD bar with score, level, time, lives, streak badge, wave phase bar, and progress bar."""
     if player is None:
         return
@@ -548,9 +565,9 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
     screen.blit(cache.hud_panel, (0, py))
     step = int(10 * S)
     for ty in range(py + step, H, step):
-        pygame.draw.line(screen, CLR["stone_hi"], (0, ty), (W, ty), 1)
-    pygame.draw.line(screen, CLR["vine"],    (0, py),          (W, py),          max(1, int(2 * S)))
-    pygame.draw.line(screen, CLR["vine_dk"], (0, py + int(2 * S)), (W, py + int(2 * S)), 1)
+        pygame.draw.line(screen, get_color("hud_border", theme), (0, ty), (W, ty), 1)
+    pygame.draw.line(screen, get_color("vine_base", theme),    (0, py),          (W, py),          max(1, int(2 * S)))
+    pygame.draw.line(screen, get_color("vine_highlight", theme), (0, py + int(2 * S)), (W, py + int(2 * S)), 1)
 
     # SCORE (left)
     screen.blit(cache.lbl_score, (int(14 * SX), py + int(6 * S)))
@@ -560,8 +577,9 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
 
     # STREAK BADGE (right of score) — only visible at tier >= 5 dodges
     mult, tier_label, color_key = _streak_tier_info(streak)
-    if tier_label is not None and color_key in _BADGE_COLORS:
-        bc = _BADGE_COLORS[color_key]
+    badge_colors = _get_badge_colors(theme)
+    if tier_label is not None and color_key in badge_colors:
+        bc = badge_colors[color_key]
         badge_surf = cache.get_streak_surf(streak, tier_label, bc["text"])
         pad_x = int(8 * SX)
         pad_y = int(3 * S)
@@ -621,7 +639,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
         stun_bar_w = int(bar_w * stun_pct)
         pygame.draw.rect(screen, (20, 60, 55),  (bar_x, bar_y, bar_w, bar_h), border_radius=brd)
         if stun_bar_w > 0:
-            pygame.draw.rect(screen, CLR["teal"], (bar_x, bar_y, stun_bar_w, bar_h), border_radius=brd)
+            pygame.draw.rect(screen, get_color("roll_ready", theme), (bar_x, bar_y, stun_bar_w, bar_h), border_radius=brd)
         pygame.draw.rect(screen, (0, 140, 120), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
         st = cache.lbl_stunned
         screen.blit(st, (W // 2 - st.get_width() // 2, bar_y - int(16 * S)))
@@ -632,7 +650,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
         pygame.draw.rect(screen, (18, 32, 18), (bar_x, bar_y, bar_w, bar_h), border_radius=brd)
         for sx in range(0, fill_w, max(1, seg_w)):
             seg = min(seg_w - 1, fill_w - sx)
-            col = CLR["vine"] if (sx // max(1, seg_w)) % 2 == 0 else CLR["vine_dk"]
+            col = get_color("vine_base", theme) if (sx // max(1, seg_w)) % 2 == 0 else get_color("vine_highlight", theme)
             pygame.draw.rect(screen, col, (bar_x + sx, bar_y, seg, bar_h))
         leaf_s = int(4 * S)
         if fill_w > leaf_s:
@@ -641,7 +659,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
                                 [(lx - leaf_s, bar_y),
                                  (lx + leaf_s, bar_y + bar_h // 2),
                                  (lx - leaf_s, bar_y + bar_h)])
-        pygame.draw.rect(screen, CLR["vine_dk"], (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
+        pygame.draw.rect(screen, get_color("vine_highlight", theme), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
 
     # Wave phase bar (above HUD panel, only during active gameplay)
     if not is_levelup:
@@ -651,11 +669,12 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
 # ─────────────────────────────────────────────────────────────────────────────
 #  Level-up overlay
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_levelup_overlay(screen, cache, level, score):
+def draw_levelup_overlay(screen, cache, level, score, theme=None):
     screen.blit(cache.ov_levelup, (0, 0))
-    lt  = F_LARGE.render(f"LEVEL {level}!", True, CLR["gold"])
+    gold = get_color("streak_gold", theme)
+    lt  = F_LARGE.render(f"LEVEL {level}!", True, gold)
     sub = cache.lbl_levelup_sub
-    sc  = F_SMALL.render(f"Score so far: {score}", True, CLR["gold"])
+    sc  = F_SMALL.render(f"Score so far: {score}", True, gold)
     screen.blit(lt,  (W // 2 - lt.get_width()  // 2, H // 2 - int(50 * S)))
     screen.blit(sub, (W // 2 - sub.get_width() // 2, H // 2 + int(20 * S)))
     screen.blit(sc,  (W // 2 - sc.get_width()  // 2, H // 2 + int(65 * S)))
@@ -677,13 +696,13 @@ def draw_pause_overlay(screen, cache):
 # ─────────────────────────────────────────────────────────────────────────────
 #  Name Entry
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t):
+def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t, theme=None):
     screen.fill((0, 12, 0))
 
-    pygame.draw.line(screen, CLR["vine_dk"],
+    pygame.draw.line(screen, get_color("vine_highlight", theme),
                      (W // 2 - int(320 * SX), H // 2 - int(120 * S)),
                      (W // 2 + int(320 * SX), H // 2 - int(120 * S)), 1)
-    pygame.draw.line(screen, CLR["vine_dk"],
+    pygame.draw.line(screen, get_color("vine_highlight", theme),
                      (W // 2 - int(320 * SX), H // 2 + int(130 * S)),
                      (W // 2 + int(320 * SX), H // 2 + int(130 * S)), 1)
 
@@ -713,17 +732,17 @@ def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t):
     for i in range(MAX_NAME_LEN):
         sx = sx_start + i * (slot_w + gap)
         filled = i < len(name_input)
-        bd_col = CLR["vine"] if filled else CLR["vine_dk"]
+        bd_col = get_color("vine_base", theme) if filled else get_color("vine_highlight", theme)
         screen.blit(cache.slot_filled if filled else cache.slot_empty, (sx, sy))
         pygame.draw.rect(screen, bd_col, (sx, sy, slot_w, slot_h), max(1, int(2 * S)), border_radius=int(6 * S))
 
         if filled:
-            ch_surf = F_LARGE.render(name_input[i], True, CLR["gold"])
+            ch_surf = F_LARGE.render(name_input[i], True, get_color("streak_gold", theme))
             screen.blit(ch_surf, (sx + slot_w // 2 - ch_surf.get_width() // 2,
                                   sy + slot_h // 2 - ch_surf.get_height() // 2))
         elif i == len(name_input):
             if cursor_on:
-                pygame.draw.rect(screen, CLR["gold"],
+                pygame.draw.rect(screen, get_color("streak_gold", theme),
                                  (sx + slot_w // 2 - int(3 * S), sy + int(16 * S),
                                   int(6 * S), int(48 * S)),
                                  border_radius=int(2 * S))
@@ -738,7 +757,7 @@ def draw_name_entry(screen, cache, name_input, cursor_on, score, level, t):
 # ─────────────────────────────────────────────────────────────────────────────
 #  Leaderboard table (shared by leaderboard and gameover screens)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_lb_table(screen, leaderboard, start_y, full=True, cache=None):
+def draw_lb_table(screen, leaderboard, start_y, full=True, cache=None, theme=None):
     col_w = int(620 * SX)
     row_h = int(36 * S) if full else int(26 * S)
     tx    = W // 2 - col_w // 2
@@ -748,7 +767,7 @@ def draw_lb_table(screen, leaderboard, start_y, full=True, cache=None):
 
         # Header
         screen.blit(hdr, (tx, start_y))
-        pygame.draw.rect(screen, CLR["lb_border"], (tx, start_y, col_w, row_h), 1)
+        pygame.draw.rect(screen, get_color("tab_active", theme), (tx, start_y, col_w, row_h), 1)
 
         if empty_surf is not None:
             screen.blit(empty_surf, (W // 2 - empty_surf.get_width() // 2,
@@ -772,9 +791,9 @@ def draw_lb_table(screen, leaderboard, start_y, full=True, cache=None):
     hdr = pygame.Surface((col_w, row_h), pygame.SRCALPHA)
     hdr.fill((30, 70, 30, 220))
     screen.blit(hdr, (tx, start_y))
-    pygame.draw.rect(screen, CLR["lb_border"], (tx, start_y, col_w, row_h), 1)
+    pygame.draw.rect(screen, get_color("tab_active", theme), (tx, start_y, col_w, row_h), 1)
     for text, x_off in [("#", x1), ("NAME", x2), ("SCORE", x3), ("LVL", x4)]:
-        s = font.render(text, True, CLR["gold"])
+        s = font.render(text, True, get_color("streak_gold", theme))
         screen.blit(s, (tx + x_off, start_y + (row_h - s.get_height()) // 2))
 
     if not leaderboard:
@@ -783,22 +802,27 @@ def draw_lb_table(screen, leaderboard, start_y, full=True, cache=None):
         return
 
     medal_bg = [(60, 45, 0), (35, 35, 45), (45, 25, 10)]
-    medal_fc = [CLR["gold"], CLR["silver"], CLR["bronze"]]
+    gold_c   = get_color("streak_gold", theme)
+    silver_c = get_color("streak_silver", theme)
+    bronze_c = get_color("streak_bronze", theme)
+    white_c  = get_color("hud_text", theme)
+    lb_row_a = get_color("lb_player_row", theme)
+    medal_fc = [gold_c, silver_c, bronze_c]
 
     for i, entry in enumerate(leaderboard[:LEADERBOARD_SIZE]):
         ry     = start_y + row_h * (i + 1)
-        bg_col = medal_bg[i] if i < 3 else (CLR["lb_row_a"] if (i - 3) % 2 == 0 else CLR["lb_row_b"])
+        bg_col = medal_bg[i] if i < 3 else (lb_row_a if (i - 3) % 2 == 0 else CLR["lb_row_b"])
         rs = pygame.Surface((col_w, row_h), pygame.SRCALPHA)
         rs.fill((*bg_col, 220))
         screen.blit(rs, (tx, ry))
         pygame.draw.rect(screen, (40, 80, 40), (tx, ry, col_w, row_h), 1)
 
-        fc = medal_fc[i] if i < 3 else CLR["white"]
+        fc = medal_fc[i] if i < 3 else white_c
         cy = ry + (row_h - font.get_height()) // 2
         for text, x_off, color in [
             (str(i + 1),                 x1, fc),
-            (entry.get("name", "?"),     x2, CLR["white"]),
-            (str(entry.get("score", 0)),  x3, CLR["gold"]),
+            (entry.get("name", "?"),     x2, white_c),
+            (str(entry.get("score", 0)),  x3, gold_c),
             (str(entry.get("level","-")),x4, (160, 200, 160)),
         ]:
             s = font.render(text, True, color)
@@ -808,7 +832,7 @@ def draw_lb_table(screen, leaderboard, start_y, full=True, cache=None):
 # ─────────────────────────────────────────────────────────────────────────────
 #  Full Leaderboard screen
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_leaderboard(screen, bg, cache, leaderboard, t):
+def draw_leaderboard(screen, bg, cache, leaderboard, t, theme=None):
     screen.blit(bg, (0, 0))
     screen.blit(cache.ov_lb, (0, 0))
 
@@ -817,17 +841,17 @@ def draw_leaderboard(screen, bg, cache, leaderboard, t):
     screen.blit(shadow, (W // 2 - title.get_width() // 2 + int(3 * S), int(28 * S)))
     screen.blit(title,  (W // 2 - title.get_width() // 2,              int(25 * S)))
 
-    draw_lb_table(screen, leaderboard, int(95 * S), full=True, cache=cache)
+    draw_lb_table(screen, leaderboard, int(95 * S), full=True, cache=cache, theme=theme)
 
     cta = F_MED.render("SPACE to play again  |  TAB / ESC to home", True,
-                       pulse_color(CLR["gold"], t))
+                       pulse_color(get_color("streak_gold", theme), t))
     screen.blit(cta, (W // 2 - cta.get_width() // 2, H - int(48 * S)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Game Over (not top 10)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_gameover(screen, bg, cache, leaderboard, score, level, t):
+def draw_gameover(screen, bg, cache, leaderboard, score, level, t, theme=None):
     screen.blit(bg, (0, 0))
     screen.blit(cache.ov_gameover, (0, 0))
 
@@ -836,29 +860,31 @@ def draw_gameover(screen, bg, cache, leaderboard, score, level, t):
     screen.blit(shad, (W // 2 - go.get_width() // 2 + int(4 * S), int(32 * S)))
     screen.blit(go,   (W // 2 - go.get_width() // 2,              int(28 * S)))
 
-    sc = F_MED.render(f"Score: {score}   |   Level {level}", True, CLR["gold"])
+    gold = get_color("streak_gold", theme)
+    warning = get_color("warning_color", theme)
+    sc = F_MED.render(f"Score: {score}   |   Level {level}", True, gold)
     screen.blit(sc, (W // 2 - sc.get_width() // 2, int(128 * S)))
 
     if leaderboard:
-        msg = F_MED.render("Not in the top 10 \u2014 keep trying!", True, CLR["red"])
+        msg = F_MED.render("Not in the top 10 \u2014 keep trying!", True, warning)
     else:
-        msg = F_MED.render("Score some points to get on the leaderboard!", True, CLR["red"])
+        msg = F_MED.render("Score some points to get on the leaderboard!", True, warning)
     screen.blit(msg, (W // 2 - msg.get_width() // 2, int(170 * S)))
 
     lb_lbl = cache.lbl_go_top10
     screen.blit(lb_lbl, (W // 2 - lb_lbl.get_width() // 2, int(208 * S)))
 
-    draw_lb_table(screen, leaderboard, int(234 * S), full=False, cache=cache)
+    draw_lb_table(screen, leaderboard, int(234 * S), full=False, cache=cache, theme=theme)
 
     cta = F_MED.render("SPACE to play again  |  ESC to home", True,
-                       pulse_color(CLR["gold"], t))
+                       pulse_color(gold, t))
     screen.blit(cta, (W // 2 - cta.get_width() // 2, H - int(48 * S)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Start screen — Minimal Impact / Cinematic
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_start(screen, bg, cache, leaderboard, start_idle_t, t):
+def draw_start(screen, bg, cache, leaderboard, start_idle_t, t, theme=None):
     screen.blit(bg, (0, 0))
 
     # Cinematic overlay (cached in HudCache — avoids per-frame SRCALPHA allocation)
@@ -871,14 +897,14 @@ def draw_start(screen, bg, cache, leaderboard, start_idle_t, t):
     if leaderboard:
         best      = leaderboard[0]
         badge_txt = F_TINY.render(
-            f"BEST  {best.get('name','?')}  {best['score']} pts", True, CLR["gold"])
+            f"BEST  {best.get('name','?')}  {best['score']} pts", True, get_color("streak_gold", theme))
         pad_x = int(10 * SX); pad_y = int(5 * S)
         bw = badge_txt.get_width() + pad_x * 2
         bh = badge_txt.get_height() + pad_y * 2
         bx = W - bw - int(12 * SX)
         by = int(12 * S)
         pygame.draw.rect(screen, (28, 22, 4),  (bx, by, bw, bh), border_radius=int(4 * S))
-        pygame.draw.rect(screen, CLR["gold"],   (bx, by, bw, bh), 1, border_radius=int(4 * S))
+        pygame.draw.rect(screen, get_color("streak_gold", theme),   (bx, by, bw, bh), 1, border_radius=int(4 * S))
         screen.blit(badge_txt, (bx + pad_x, by + pad_y))
 
     # ? icon (top-left)
@@ -909,7 +935,7 @@ def draw_start(screen, bg, cache, leaderboard, start_idle_t, t):
     screen.blit(tag, (W // 2 - tag.get_width() // 2, cy_title + int(106 * S)))
 
     # Bordered CTA
-    cta_col = pulse_color(CLR["gold"], t)
+    cta_col = pulse_color(get_color("streak_gold", theme), t)
     cta_txt = F_MED.render(">> PRESS SPACE TO START <<", True, cta_col)
     cta_w   = cta_txt.get_width() + int(44 * SX)
     cta_h   = cta_txt.get_height() + int(18 * S)

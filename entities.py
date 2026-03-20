@@ -17,6 +17,7 @@ from constants import (
     PLAYER_SPD, SPEED_SCALE,
     ROLL_DURATION, ROLL_SPEED_MULT, ROLL_IFRAME, ROLL_COOLDOWN,
 )
+from themes import get_color
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,7 +125,7 @@ class Player:
 
         self.tick_timers(dt)
 
-    def _draw_character(self, surf, cx, top_y, stunned=False):
+    def _draw_character(self, surf, cx, top_y, stunned=False, theme=None):
         """Draw the explorer character at the given center-x and top-y."""
         boty = top_y + self.PH
         sw   = math.sin(self.walk_t) * int(9 * S) if self.walk_t else 0
@@ -150,32 +151,36 @@ class Player:
         # Legs
         lleg = (cx - o5 + int(sw), boty)
         rleg = (cx + o5 - int(sw), boty)
-        pygame.draw.line(surf, CLR["pants"], (cx - o5, top_y + o36), lleg, max(1, int(5 * S)))
-        pygame.draw.line(surf, CLR["pants"], (cx + o5, top_y + o36), rleg, max(1, int(5 * S)))
-        pygame.draw.circle(surf, (50, 35, 20), lleg, o4)
-        pygame.draw.circle(surf, (50, 35, 20), rleg, o4)
+        pants_col = get_color("char_pants", theme)
+        pygame.draw.line(surf, pants_col, (cx - o5, top_y + o36), lleg, max(1, int(5 * S)))
+        pygame.draw.line(surf, pants_col, (cx + o5, top_y + o36), rleg, max(1, int(5 * S)))
+        boots_col = get_color("char_boots", theme)
+        pygame.draw.circle(surf, boots_col, lleg, o4)
+        pygame.draw.circle(surf, boots_col, rleg, o4)
 
         # Arms
         aw = math.sin(self.walk_t + math.pi) * o7 if self.walk_t else 0
         ay = top_y + o22
-        pygame.draw.line(surf, CLR["shirt"], (cx - o12, ay), (cx - o20, ay + o14 + int(aw)), max(1, int(4 * S)))
-        pygame.draw.line(surf, CLR["shirt"], (cx + o12, ay), (cx + o20, ay + o14 - int(aw)), max(1, int(4 * S)))
+        shirt_col = get_color("char_jacket", theme)
+        pygame.draw.line(surf, shirt_col, (cx - o12, ay), (cx - o20, ay + o14 + int(aw)), max(1, int(4 * S)))
+        pygame.draw.line(surf, shirt_col, (cx + o12, ay), (cx + o20, ay + o14 - int(aw)), max(1, int(4 * S)))
 
         # Body
-        bcol = CLR["shirt"] if not stunned else (255, 255, 100)
+        bcol = shirt_col if not stunned else (255, 255, 100)
         pygame.draw.rect(surf, bcol, (cx - o13, top_y + o16, o26, o22), border_radius=o4)
 
         # Head
         hcy  = top_y + o10
-        hcol = CLR["skin"] if not stunned else (255, 230, 150)
+        hcol = get_color("char_skin", theme) if not stunned else (255, 230, 150)
         pygame.draw.circle(surf, hcol, (cx, hcy), o12)
         pygame.draw.circle(surf, (30, 20, 10), (cx + o4 * self.facing, hcy), o2)
 
         # Explorer hat
-        hcol2 = CLR["hat"] if not stunned else (180, 140, 70)
+        hcol2 = get_color("char_hat", theme) if not stunned else (180, 140, 70)
         pygame.draw.ellipse(surf, hcol2, (cx - o17, hcy - o5, int(34 * S), o9))
         pygame.draw.rect(surf,   hcol2, (cx - o9, hcy - o17, o18, o13), border_radius=o3)
-        pygame.draw.rect(surf, (100, 70, 30), (cx - o9, hcy - int(6 * S), o18, o3))
+        hat_band_col = get_color("char_hat_band", theme)
+        pygame.draw.rect(surf, hat_band_col, (cx - o9, hcy - int(6 * S), o18, o3))
 
         # Stun stars
         if stunned:
@@ -186,7 +191,7 @@ class Player:
                 pygame.draw.circle(surf, CLR["yellow"], (sx, sy), o4)
                 pygame.draw.circle(surf, CLR["white"],  (sx, sy), o2)
 
-    def draw(self, surf, particles=None):
+    def draw(self, surf, particles=None, theme=None):
         """Draw player to surf. Pass an optional ParticleSystem for roll trail effects."""
         stunned = self.is_stunned()
         if stunned and int(self.flash_t) % 2 == 1:
@@ -199,7 +204,7 @@ class Player:
             arc_rect = pygame.Rect(self.x - arc_r, self.y + self.PH - int(4 * S),
                                    arc_r * 2, arc_r * 2)
             end_angle = -math.pi / 2 + cd_frac * 2 * math.pi
-            pygame.draw.arc(surf, CLR["teal"], arc_rect,
+            pygame.draw.arc(surf, get_color("roll_ready", theme), arc_rect,
                             -math.pi / 2, end_angle, max(1, int(3 * S)))
 
         # ── Roll tilt transform ─────────────────────────────────────────────
@@ -221,7 +226,7 @@ class Player:
             tmp = pygame.Surface((pw_full, ph_full), pygame.SRCALPHA)
             offset_x = pw_full // 2
             offset_y = int(10 * S)
-            self._draw_character(tmp, offset_x, offset_y, stunned)
+            self._draw_character(tmp, offset_x, offset_y, stunned, theme=theme)
             # Rotate 45° in roll direction
             angle = -45 * self.roll_dir
             rotated = pygame.transform.rotate(tmp, angle)
@@ -233,7 +238,7 @@ class Player:
             surf.blit(squashed, (self.x - sw2 // 2, self.y + self.PH // 2 - sh2 // 2))
             return
 
-        self._draw_character(surf, self.x, self.y, stunned)
+        self._draw_character(surf, self.x, self.y, stunned, theme=theme)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -247,7 +252,7 @@ class Obstacle:
         self.did_hit = False   # True if this obstacle hit the player (CRIT-01)
 
     def update(self, dt, player): pass
-    def draw(self, surf):         pass
+    def draw(self, surf, theme=None): pass
     def check_hit(self, player):  return False
 
 
@@ -294,22 +299,24 @@ class Vine(Obstacle):
         return (not self.landed and not player.is_hit_immune()
                 and self.rect.colliderect(player.rect))
 
-    def draw(self, surf):
+    def draw(self, surf, theme=None):
         segs  = 9
         seg_h = self.BH // segs
         sway_off = int(3 * S)
         leaf_w = int(11 * S)
         leaf_h = int(6  * S)
+        vine_col = get_color("vine_base", theme)
+        vine_dk  = get_color("vine_highlight", theme)
         for i in range(segs):
             sy  = int(self.y) + i * seg_h
             off = int(math.sin(self.sway_t + i * 0.5) * sway_off)
-            col = CLR["vine"] if i % 2 == 0 else CLR["vine_dk"]
+            col = vine_col if i % 2 == 0 else vine_dk
             pygame.draw.rect(surf, col,
                              (int(self.x) - self.BW // 2 + off, sy, self.BW, seg_h + 1))
             if i % 3 == 1:
                 lx = int(self.x) + self.BW // 2 + off
-                pygame.draw.ellipse(surf, CLR["vine"], (lx, sy + 1, leaf_w, leaf_h))
-        pygame.draw.circle(surf, CLR["vine_dk"],
+                pygame.draw.ellipse(surf, vine_col, (lx, sy + 1, leaf_w, leaf_h))
+        pygame.draw.circle(surf, vine_dk,
                            (int(self.x), int(self.y + self.BH)), int(5 * S))
 
 
@@ -367,7 +374,7 @@ class Bomb(Obstacle):
             return dist < self.exp_r
         return False
 
-    def draw(self, surf):
+    def draw(self, surf, theme=None):
         cx, cy = int(self.x), int(self.y)
         if self.exploded:
             prog = self.exp_t / max(self.exp_dur, 0.001)
@@ -385,10 +392,10 @@ class Bomb(Obstacle):
         o2  = int(2 * S)
         o3  = int(3 * S)
 
-        pygame.draw.circle(surf, CLR["bomb"],  (cx, cy), self.R)
+        pygame.draw.circle(surf, get_color("bomb_body", theme),  (cx, cy), self.R)
         pygame.draw.circle(surf, (55, 55, 55), (cx - o5, cy - o5), o6)
         fuse_top = (cx + o4, cy - self.R - o10)
-        pygame.draw.lines(surf, CLR["fuse"], False,
+        pygame.draw.lines(surf, get_color("bomb_fuse", theme), False,
                           [(cx, cy - self.R), (cx + o2, cy - self.R - o5), fuse_top], max(1, o2))
         sa  = self.spark_t
         spx = fuse_top[0] + int(o3 * math.cos(sa))
@@ -424,17 +431,17 @@ class Spike(Obstacle):
     def check_hit(self, player):
         return not player.is_hit_immune() and self.rect.colliderect(player.rect)
 
-    def draw(self, surf):
+    def draw(self, surf, theme=None):
         cx  = int(self.x)
         top = int(self.y)
         tip = int(self.y + self.SH)
         hw  = self.SW // 2
         pts = [(cx - hw, top), (cx + hw, top), (cx, tip)]
-        pygame.draw.polygon(surf, CLR["spike"],    pts)
-        pygame.draw.polygon(surf, CLR["spike_dk"], pts, max(1, int(2 * S)))
+        pygame.draw.polygon(surf, get_color("spike_base", theme),    pts)
+        pygame.draw.polygon(surf, get_color("spike_tip", theme), pts, max(1, int(2 * S)))
         pygame.draw.line(surf, (220, 220, 240),
                          (cx - hw // 2, top + int(4 * S)), (cx - int(2 * S), tip - int(6 * S)), 1)
-        pygame.draw.rect(surf, CLR["spike_dk"], (cx - hw, top, self.SW, int(5 * S)))
+        pygame.draw.rect(surf, get_color("spike_tip", theme), (cx - hw, top, self.SW, int(5 * S)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -497,15 +504,17 @@ class Boulder(Obstacle):
         return (int(self.x + (px * c - py * s) * self.R),
                 int(self.y + (px * s + py * c) * self.R))
 
-    def draw(self, surf):
+    def draw(self, surf, theme=None):
         cx, cy = int(self.x), int(self.y)
+        boulder_col = get_color("boulder_base", theme)
+        boulder_dk  = get_color("boulder_crack", theme)
         pygame.draw.ellipse(surf, (30, 55, 20),
                             (cx - self.R, cy + self.R - int(8 * S), self.R * 2, int(12 * S)))
-        pygame.draw.circle(surf, CLR["boulder"],    (cx, cy), self.R)
-        pygame.draw.circle(surf, CLR["boulder_dk"], (cx + int(5 * S), cy + int(5 * S)), self.R - int(6 * S))
+        pygame.draw.circle(surf, boulder_col,    (cx, cy), self.R)
+        pygame.draw.circle(surf, boulder_dk, (cx + int(5 * S), cy + int(5 * S)), self.R - int(6 * S))
         for x1, y1, x2, y2 in self.cracks:
-            pygame.draw.line(surf, CLR["boulder_dk"],
+            pygame.draw.line(surf, boulder_dk,
                              self._rot_pt(x1, y1), self._rot_pt(x1 + x2, y1 + y2), max(1, int(2 * S)))
-        pygame.draw.circle(surf, CLR["boulder_dk"], (cx, cy), self.R, max(1, int(2 * S)))
+        pygame.draw.circle(surf, boulder_dk, (cx, cy), self.R, max(1, int(2 * S)))
         pygame.draw.circle(surf, (165, 145, 120),
                            (cx - self.R // 3, cy - self.R // 3), self.R // 4)
