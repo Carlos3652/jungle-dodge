@@ -21,6 +21,7 @@ from constants import (
     GROUND_Y,
     LEVEL_TIME, MAX_LIVES, STUN_SECS,
     DODGE_PTS,
+    NEAR_MISS_PTS, NEAR_MISS_THRESHOLD,
     BASE_SPAWN, SPAWN_DEC, MIN_SPAWN, SPEED_SCALE,
     OBS_TYPES, OBS_WEIGHTS,
     MAX_NAME_LEN,
@@ -57,6 +58,7 @@ class GameContext:
     spawn_timer: float = 0.0
     levelup_t: float = 0.0
     leaderboard: List = field(default_factory=list)
+    near_misses: int = 0  # run-stat counter for near-miss events (jd-10)
 
     # HUD cache (lazy-init)
     hud_cache: Optional[hud.HudCache] = None
@@ -199,6 +201,7 @@ def _new_game(ctx: GameContext) -> None:
     ctx.streak       = 0
     ctx.level        = 1
     ctx.streak       = 0
+    ctx.near_misses  = 0
     ctx.player       = Player()
     ctx.start_idle_t = 0.0
     if ctx.hud_cache is None:
@@ -458,6 +461,20 @@ class PlayState(State):
                          if isinstance(obs, Bomb) else GROUND_Y - int(30 * S))
                 label = f"+{pts}" if multiplier <= 1.0 else f"+{pts} x{multiplier:g}"
                 ctx.particles.pop_text(obs.x, pop_y, label, themes.get_color("hud_primary", ctx.theme))
+
+        # Near-miss detection (jd-10) — check once per obstacle after it scores
+        for obs in ctx.obstacles:
+            if obs.scored and not obs._near_miss_checked and not obs.did_hit:
+                obs._near_miss_checked = True
+                if abs(obs.x - ctx.player.x) < NEAR_MISS_THRESHOLD:
+                    ctx.score += NEAR_MISS_PTS
+                    ctx.near_misses += 1
+                    nm_pop_y = (GROUND_Y - obs.exp_r - int(30 * S)
+                                if isinstance(obs, Bomb) else GROUND_Y - int(60 * S))
+                    ctx.particles.pop_text(
+                        obs.x, nm_pop_y, "CLOSE!",
+                        themes.get_color("near_miss", ctx.theme)
+                    )
 
         ctx.obstacles = [o for o in ctx.obstacles if o.alive]
         ctx.particles.update(dt)

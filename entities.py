@@ -246,10 +246,11 @@ class Player:
 # ─────────────────────────────────────────────────────────────────────────────
 class Obstacle:
     def __init__(self):
-        self.alive   = True
-        self.scored  = False   # True once obstacle reaches ground
-        self._pts    = False   # True once points have been awarded
-        self.did_hit = False   # True if this obstacle hit the player (CRIT-01)
+        self.alive               = True
+        self.scored              = False   # True once obstacle reaches ground
+        self._pts                = False   # True once points have been awarded
+        self.did_hit             = False   # True if this obstacle hit the player (CRIT-01)
+        self._near_miss_checked  = False   # True once near-miss check has been done (jd-10)
 
     def update(self, dt, player): pass
     def draw(self, surf, theme=None): pass
