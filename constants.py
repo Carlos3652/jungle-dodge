@@ -69,6 +69,13 @@ SPAWN_DEC        = 0.12
 MIN_SPAWN        = 0.35
 SPEED_SCALE      = 0.25
 
+DIFFICULTIES = {
+    "easy":   {"lives": 4, "speed_mult": 0.85, "label": "EASY"},
+    "normal": {"lives": 3, "speed_mult": 1.0,  "label": "NORMAL"},
+    "hard":   {"lives": 2, "speed_mult": 1.15, "label": "HARD"},
+}
+DIFFICULTY_ORDER = ("easy", "normal", "hard")
+
 ROLL_DURATION    = 0.4
 ROLL_SPEED_MULT  = 2.5
 ROLL_IFRAME      = 0.25

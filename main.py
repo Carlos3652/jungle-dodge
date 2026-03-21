@@ -39,7 +39,10 @@ def main():
         audio=audio,
         theme=theme,
     )
-    ctx.leaderboard = ctx.persistence.get_board("normal")
+    # jd-11: load persisted difficulty
+    settings = ctx.persistence.load_settings()
+    ctx.difficulty = settings.get("difficulty", "normal")
+    ctx.leaderboard = ctx.persistence.get_board(ctx.difficulty)
 
     manager = GameStateManager(ctx)
     manager.push(StartScreenState())

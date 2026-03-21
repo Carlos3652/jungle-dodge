@@ -88,6 +88,8 @@ def _make_ctx():
     # Stub persistence methods used by states
     ctx.persistence.get_board = MagicMock(return_value=[])
     ctx.persistence.is_top_score = MagicMock(return_value=False)
+    ctx.persistence.load_settings = MagicMock(return_value={"difficulty": "normal"})
+    ctx.persistence.save_settings = MagicMock()
     return ctx
 
 

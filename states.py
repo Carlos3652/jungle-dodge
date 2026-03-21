@@ -27,6 +27,7 @@ from constants import (
     MAX_NAME_LEN,
     STREAK_TIERS, STREAK_LOST_THRESHOLD,
     WAVE_PHASES, CRESCENDO_SEPARATION,
+    DIFFICULTIES, DIFFICULTY_ORDER,
 )
 from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder
 from particles import ParticleSystem
@@ -59,6 +60,8 @@ class GameContext:
     levelup_t: float = 0.0
     leaderboard: List = field(default_factory=list)
     near_misses: int = 0  # run-stat counter for near-miss events (jd-10)
+    difficulty: str = "normal"       # jd-11: active difficulty key
+    speed_mult: float = 1.0          # jd-11: obstacle speed multiplier from difficulty
 
     # HUD cache (lazy-init)
     hud_cache: Optional[hud.HudCache] = None
@@ -204,6 +207,10 @@ def _new_game(ctx: GameContext) -> None:
     ctx.near_misses  = 0
     ctx.player       = Player()
     ctx.start_idle_t = 0.0
+    # jd-11: apply difficulty settings
+    diff = DIFFICULTIES.get(ctx.difficulty, DIFFICULTIES["normal"])
+    ctx.player.lives = diff["lives"]
+    ctx.speed_mult   = diff["speed_mult"]
     if ctx.hud_cache is None:
         ctx.hud_cache = hud.HudCache()
     _reset_level(ctx)
@@ -272,7 +279,9 @@ def _spawn(ctx: GameContext) -> None:
         "boulder": int(80  * SX),
     }
     sx = _spawn_x_near_player(ctx.player, margins[kind], ctx.level)
-    ctx.obstacles.append(cls(ctx.level, spawn_x=sx))
+    obs = cls(ctx.level, spawn_x=sx)
+    obs.vy *= ctx.speed_mult  # jd-11: difficulty speed scaling
+    ctx.obstacles.append(obs)
 
 
 def _get_wave_phase_modifier(level_t: float):
@@ -298,7 +307,9 @@ def _spawn_dual(ctx: GameContext) -> None:
     kind1 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
     kind2 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
     sx1 = _spawn_x_near_player(ctx.player, margins[kind1], ctx.level)
-    ctx.obstacles.append(cls_map[kind1](ctx.level, spawn_x=sx1))
+    obs1 = cls_map[kind1](ctx.level, spawn_x=sx1)
+    obs1.vy *= ctx.speed_mult  # jd-11: difficulty speed scaling
+    ctx.obstacles.append(obs1)
     min_sep = int(W * CRESCENDO_SEPARATION)
     margin2 = margins[kind2]
     if sx1 + min_sep <= W - margin2:
@@ -310,7 +321,9 @@ def _spawn_dual(ctx: GameContext) -> None:
             sx2 = random.randint(W // 2 + margin2, W - margin2)
         else:
             sx2 = random.randint(margin2, W // 2 - margin2)
-    ctx.obstacles.append(cls_map[kind2](ctx.level, spawn_x=sx2))
+    obs2 = cls_map[kind2](ctx.level, spawn_x=sx2)
+    obs2.vy *= ctx.speed_mult  # jd-11: difficulty speed scaling
+    ctx.obstacles.append(obs2)
 
 
 def _draw_scene(ctx: GameContext) -> None:
@@ -328,8 +341,26 @@ def _draw_scene(ctx: GameContext) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 class StartScreenState(State):
 
+    def __init__(self):
+        self.diff_idx = 1  # default: normal (index into DIFFICULTY_ORDER)
+
     def enter(self, ctx):
-        ctx.leaderboard = ctx.persistence.get_board("normal")
+        # Load persisted difficulty preference
+        settings = ctx.persistence.load_settings()
+        saved = settings.get("difficulty", "normal")
+        if saved in DIFFICULTY_ORDER:
+            self.diff_idx = DIFFICULTY_ORDER.index(saved)
+        ctx.difficulty = DIFFICULTY_ORDER[self.diff_idx]
+        ctx.leaderboard = ctx.persistence.get_board(ctx.difficulty)
+
+    def _set_difficulty(self, ctx):
+        """Apply the current diff_idx selection to context and reload leaderboard."""
+        ctx.difficulty = DIFFICULTY_ORDER[self.diff_idx]
+        ctx.leaderboard = ctx.persistence.get_board(ctx.difficulty)
+        # Persist choice
+        settings = ctx.persistence.load_settings()
+        settings["difficulty"] = ctx.difficulty
+        ctx.persistence.save_settings(settings)
 
     def handle_event(self, ctx, event):
         if event.type != pygame.KEYDOWN:
@@ -341,6 +372,31 @@ class StartScreenState(State):
 
         if event.key == pygame.K_ESCAPE:
             pass  # no-op on home screen
+            return
+
+        # Difficulty selection: UP/DOWN cycle
+        if event.key == pygame.K_UP:
+            self.diff_idx = (self.diff_idx - 1) % len(DIFFICULTY_ORDER)
+            self._set_difficulty(ctx)
+            return
+
+        if event.key == pygame.K_DOWN:
+            self.diff_idx = (self.diff_idx + 1) % len(DIFFICULTY_ORDER)
+            self._set_difficulty(ctx)
+            return
+
+        # Difficulty selection: number keys 1/2/3
+        if event.key == pygame.K_1:
+            self.diff_idx = 0
+            self._set_difficulty(ctx)
+            return
+        if event.key == pygame.K_2:
+            self.diff_idx = 1
+            self._set_difficulty(ctx)
+            return
+        if event.key == pygame.K_3:
+            self.diff_idx = 2
+            self._set_difficulty(ctx)
             return
 
         if event.key == pygame.K_SPACE:
@@ -358,7 +414,9 @@ class StartScreenState(State):
         t = pygame.time.get_ticks()
         if ctx.hud_cache is None:
             ctx.hud_cache = hud.HudCache()
-        hud.draw_start(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, ctx.start_idle_t, t, theme=ctx.theme)
+        hud.draw_start(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard,
+                       ctx.start_idle_t, t, theme=ctx.theme,
+                       difficulty=ctx.difficulty, diff_idx=self.diff_idx)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -481,7 +539,7 @@ class PlayState(State):
 
         # Game over check
         if ctx.player.lives <= 0:
-            if ctx.persistence.is_top_score(ctx.score, "normal"):
+            if ctx.persistence.is_top_score(ctx.score, ctx.difficulty):
                 ctx.name_input = ""
                 ctx.cursor_t   = 0.0
                 ctx.cursor_on  = True
@@ -491,8 +549,10 @@ class PlayState(State):
 
     def draw(self, ctx):
         _draw_scene(ctx)
+        _diff = DIFFICULTIES.get(ctx.difficulty, DIFFICULTIES["normal"])
         hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, streak=ctx.streak, is_levelup=False, theme=ctx.theme)
+                     ctx.player, streak=ctx.streak, is_levelup=False, theme=ctx.theme,
+                     max_lives=_diff["lives"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -525,8 +585,10 @@ class PauseState(State):
             return
         # Draw game underneath
         _draw_scene(ctx)
+        _diff = DIFFICULTIES.get(ctx.difficulty, DIFFICULTIES["normal"])
         hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, streak=ctx.streak, is_levelup=False, theme=ctx.theme)
+                     ctx.player, streak=ctx.streak, is_levelup=False, theme=ctx.theme,
+                     max_lives=_diff["lives"])
         hud.draw_pause_overlay(ctx.screen, ctx.hud_cache)
 
 
@@ -558,8 +620,10 @@ class LevelUpState(State):
         if ctx.player is None:
             return
         _draw_scene(ctx)
+        _diff = DIFFICULTIES.get(ctx.difficulty, DIFFICULTIES["normal"])
         hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
-                     ctx.player, streak=ctx.streak, is_levelup=True, theme=ctx.theme)
+                     ctx.player, streak=ctx.streak, is_levelup=True, theme=ctx.theme,
+                     max_lives=_diff["lives"])
         hud.draw_levelup_overlay(ctx.screen, ctx.hud_cache, ctx.level, ctx.score, theme=ctx.theme)
 
 
@@ -569,7 +633,7 @@ class LevelUpState(State):
 class GameOverState(State):
 
     def enter(self, ctx):
-        ctx.leaderboard = ctx.persistence.get_board("normal")
+        ctx.leaderboard = ctx.persistence.get_board(ctx.difficulty)
 
     def handle_event(self, ctx, event):
         if event.type != pygame.KEYDOWN:
@@ -610,14 +674,14 @@ class NameEntryState(State):
 
         if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
             name = ctx.name_input if ctx.name_input else "-----"
-            ctx.persistence.submit_score(name, ctx.score, ctx.level)
-            ctx.leaderboard = ctx.persistence.get_board("normal")
+            ctx.persistence.submit_score(name, ctx.score, ctx.level, difficulty=ctx.difficulty)
+            ctx.leaderboard = ctx.persistence.get_board(ctx.difficulty)
             ctx.manager.replace(LeaderboardState())
             return
 
         if event.key == pygame.K_ESCAPE:
-            ctx.persistence.submit_score("-----", ctx.score, ctx.level)
-            ctx.leaderboard = ctx.persistence.get_board("normal")
+            ctx.persistence.submit_score("-----", ctx.score, ctx.level, difficulty=ctx.difficulty)
+            ctx.leaderboard = ctx.persistence.get_board(ctx.difficulty)
             ctx.manager.replace(LeaderboardState())
             return
 
@@ -649,7 +713,7 @@ class NameEntryState(State):
 class LeaderboardState(State):
 
     def enter(self, ctx):
-        ctx.leaderboard = ctx.persistence.get_board("normal")
+        ctx.leaderboard = ctx.persistence.get_board(ctx.difficulty)
 
     def handle_event(self, ctx, event):
         if event.type != pygame.KEYDOWN:

@@ -18,6 +18,7 @@ from constants import (
     STREAK_TIERS,
     WAVE_PHASES,
     F_HUGE, F_LARGE, F_MED, F_SMALL, F_TINY, F_SERIF, F_SKULL,
+    DIFFICULTIES, DIFFICULTY_ORDER,
 )
 from themes import get_color
 
@@ -555,10 +556,12 @@ def draw_wave_phase_bar(screen, level_timer, cache=None):
     pygame.draw.rect(screen, (80, 80, 80), (0, bar_y, W, bar_h), 1)
 
 
-def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False, theme=None):
+def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False, theme=None, max_lives=None):
     """Draw the bottom HUD bar with score, level, time, lives, streak badge, wave phase bar, and progress bar."""
     if player is None:
         return
+    if max_lives is None:
+        max_lives = MAX_LIVES
     ph  = int(72 * S)
     py  = H - ph
 
@@ -623,7 +626,7 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
     # LIVES — pre-rendered skull icons from cache (right)
     screen.blit(cache.lbl_lives, (W - int(122 * SX), py + int(6 * S)))
     skull_gap = int(36 * S)
-    for i in range(MAX_LIVES):
+    for i in range(max_lives):
         sk = cache.skull_alive if i < player.lives else cache.skull_lost
         screen.blit(sk, (W - int(120 * SX) + i * skull_gap, py + int(26 * S)))
 
@@ -884,7 +887,8 @@ def draw_gameover(screen, bg, cache, leaderboard, score, level, t, theme=None):
 # ─────────────────────────────────────────────────────────────────────────────
 #  Start screen — Minimal Impact / Cinematic
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_start(screen, bg, cache, leaderboard, start_idle_t, t, theme=None):
+def draw_start(screen, bg, cache, leaderboard, start_idle_t, t, theme=None,
+               difficulty="normal", diff_idx=1):
     screen.blit(bg, (0, 0))
 
     # Cinematic overlay (cached in HudCache — avoids per-frame SRCALPHA allocation)
@@ -934,13 +938,65 @@ def draw_start(screen, bg, cache, leaderboard, start_idle_t, t, theme=None):
     tag = cache.lbl_tagline
     screen.blit(tag, (W // 2 - tag.get_width() // 2, cy_title + int(106 * S)))
 
+    # ── Difficulty selector row (jd-11) ──────────────────────────────────
+    diff_y = cy_title + int(130 * S)
+    diff_gap = int(12 * SX)
+    diff_pill_h = int(32 * S)
+    diff_pad_x = int(18 * SX)
+    diff_pad_y = int(5 * S)
+
+    # Pre-measure pill widths
+    diff_color_keys = ("diff_easy", "diff_normal", "diff_hard")
+    diff_labels = [DIFFICULTIES[d]["label"] for d in DIFFICULTY_ORDER]
+    diff_surfs = [F_SMALL.render(lbl, True, (255, 255, 255)) for lbl in diff_labels]
+    pill_widths = [surf.get_width() + diff_pad_x * 2 for surf in diff_surfs]
+    total_diff_w = sum(pill_widths) + diff_gap * (len(DIFFICULTY_ORDER) - 1)
+    diff_x = W // 2 - total_diff_w // 2
+
+    for i, d_key in enumerate(DIFFICULTY_ORDER):
+        pw = pill_widths[i]
+        is_sel = (i == diff_idx)
+        d_color = get_color(diff_color_keys[i], theme)
+        sel_color = get_color("diff_selected", theme)
+
+        if is_sel:
+            # Full brightness pill with selected border
+            pill_bg = (*d_color, 180)
+            border_col = sel_color
+        else:
+            # Dimmed pill
+            pill_bg = (*(c // 3 for c in d_color), 120)
+            border_col = tuple(c // 2 for c in d_color)
+
+        pill_surf = pygame.Surface((pw, diff_pill_h), pygame.SRCALPHA)
+        pill_surf.fill(pill_bg)
+        pygame.draw.rect(pill_surf, border_col, (0, 0, pw, diff_pill_h),
+                         max(1, int(2 * S)), border_radius=int(diff_pill_h // 2))
+        screen.blit(pill_surf, (diff_x, diff_y))
+
+        # Label text
+        txt_surf = diff_surfs[i]
+        if not is_sel:
+            # Dim text by rendering with reduced color
+            txt_surf = F_SMALL.render(diff_labels[i], True, tuple(c // 2 for c in (255, 255, 255)))
+        screen.blit(txt_surf, (diff_x + diff_pad_x,
+                               diff_y + diff_pill_h // 2 - txt_surf.get_height() // 2))
+        diff_x += pw + diff_gap
+
+    # Personal best for selected difficulty
+    pb = None
+    if leaderboard:
+        pb = leaderboard[0].get("score", 0) if leaderboard else 0
+    diff_hint = F_TINY.render("UP/DOWN to change difficulty", True, (80, 110, 80))
+    screen.blit(diff_hint, (W // 2 - diff_hint.get_width() // 2, diff_y + diff_pill_h + int(4 * S)))
+
     # Bordered CTA
     cta_col = pulse_color(get_color("streak_gold", theme), t)
     cta_txt = F_MED.render(">> PRESS SPACE TO START <<", True, cta_col)
     cta_w   = cta_txt.get_width() + int(44 * SX)
     cta_h   = cta_txt.get_height() + int(18 * S)
     cta_x   = W // 2 - cta_w // 2
-    cta_y   = cy_title + int(148 * S)
+    cta_y   = cy_title + int(186 * S)
     pygame.draw.rect(screen, (28, 22, 4),  (cta_x, cta_y, cta_w, cta_h), border_radius=int(6 * S))
     pygame.draw.rect(screen, cta_col,       (cta_x, cta_y, cta_w, cta_h), max(1, int(2 * S)), border_radius=int(6 * S))
     screen.blit(cta_txt, (cta_x + int(22 * SX), cta_y + int(9 * S)))
