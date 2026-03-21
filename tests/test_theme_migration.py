@@ -52,33 +52,37 @@ def test_game_context_theme_defaults_to_none():
 # ── Theme color value parity ─────────────────────────────────────────────────
 
 class TestThemeColorParity:
-    """Verify that jungle theme colors match the old CLR values."""
+    """Verify that jungle theme colors are valid and match expected values.
+
+    Note: Several colour values were deliberately updated in jd-18 (jungle
+    theme refresh) to use a warmer, richer palette.  Tests that previously
+    pinned to the old CLR constants have been updated to reflect the new spec
+    values.  Keys unchanged by jd-18 still pin to CLR for regression safety.
+    """
 
     JUNGLE = get_theme("jungle")
 
-    # Character
+    # ── Character — unchanged keys still pin to CLR ──────────────────────
     def test_char_pants(self):
         assert get_color("char_pants", self.JUNGLE) == CLR["pants"]
-
-    def test_char_jacket(self):
-        assert get_color("char_jacket", self.JUNGLE) == CLR["shirt"]
 
     def test_char_skin(self):
         assert get_color("char_skin", self.JUNGLE) == CLR["skin"]
 
-    def test_char_hat(self):
-        assert get_color("char_hat", self.JUNGLE) == CLR["hat"]
-
     def test_char_boots(self):
         assert get_color("char_boots", self.JUNGLE) == (50, 35, 20)
 
+    # ── Character — updated by jd-18 (warmer leather palette) ────────────
+    def test_char_jacket(self):
+        assert get_color("char_jacket", self.JUNGLE) == (185, 155, 90)
+
+    def test_char_hat(self):
+        assert get_color("char_hat", self.JUNGLE) == (130, 90, 45)
+
     def test_char_hat_band(self):
-        assert get_color("char_hat_band", self.JUNGLE) == (100, 70, 35)
+        assert get_color("char_hat_band", self.JUNGLE) == (190, 145, 45)
 
-    # Obstacles
-    def test_vine_base(self):
-        assert get_color("vine_base", self.JUNGLE) == CLR["vine"]
-
+    # ── Obstacles — unchanged keys ────────────────────────────────────────
     def test_vine_highlight(self):
         assert get_color("vine_highlight", self.JUNGLE) == CLR["vine_dk"]
 
@@ -88,19 +92,23 @@ class TestThemeColorParity:
     def test_bomb_fuse(self):
         assert get_color("bomb_fuse", self.JUNGLE) == CLR["fuse"]
 
-    def test_spike_base(self):
-        assert get_color("spike_base", self.JUNGLE) == CLR["spike"]
-
     def test_spike_tip(self):
         assert get_color("spike_tip", self.JUNGLE) == CLR["spike_dk"]
-
-    def test_boulder_base(self):
-        assert get_color("boulder_base", self.JUNGLE) == CLR["boulder"]
 
     def test_boulder_crack(self):
         assert get_color("boulder_crack", self.JUNGLE) == CLR["boulder_dk"]
 
-    # HUD
+    # ── Obstacles — updated by jd-18 ─────────────────────────────────────
+    def test_vine_base(self):
+        assert get_color("vine_base", self.JUNGLE) == (32, 195, 65)
+
+    def test_spike_base(self):
+        assert get_color("spike_base", self.JUNGLE) == (190, 65, 240)
+
+    def test_boulder_base(self):
+        assert get_color("boulder_base", self.JUNGLE) == (130, 108, 80)
+
+    # ── HUD — unchanged ───────────────────────────────────────────────────
     def test_hud_bg(self):
         assert get_color("hud_bg", self.JUNGLE) == CLR["stone"]
 
@@ -131,17 +139,17 @@ class TestThemeColorParity:
     def test_streak_bronze(self):
         assert get_color("streak_bronze", self.JUNGLE) == CLR["bronze"]
 
-    # Background
+    # ── Background — updated by jd-18 ────────────────────────────────────
     def test_ground_base(self):
-        assert get_color("ground_base", self.JUNGLE) == CLR["ground"]
+        assert get_color("ground_base", self.JUNGLE) == (55, 35, 18)
 
     def test_grass_main(self):
-        assert get_color("grass_main", self.JUNGLE) == CLR["grass"]
+        assert get_color("grass_main", self.JUNGLE) == (38, 85, 28)
 
     def test_sky_top(self):
-        assert get_color("sky_top", self.JUNGLE) == CLR["sky_top"]
+        assert get_color("sky_top", self.JUNGLE) == (4, 10, 6)
 
-    # Leaderboard
+    # ── Leaderboard — unchanged ───────────────────────────────────────────
     def test_lb_player_row(self):
         assert get_color("lb_player_row", self.JUNGLE) == CLR["lb_row_a"]
 

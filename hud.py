@@ -294,8 +294,10 @@ def build_background(theme=None):
     def svy(v): return int(v * sy)
     def svx(v): return int(v * W / 900)
 
-    # 1. Cliff gradient fill
-    c_top = (26, 24, 16); c_mid = (42, 36, 24); c_bot = (34, 30, 20)
+    # 1. Cliff gradient fill — use theme sky colors for richer atmosphere
+    sky_top = get_color("sky_top", theme)
+    sky_hor = get_color("sky_horizon", theme)
+    c_top = sky_top; c_mid = sky_hor; c_bot = (34, 30, 20)
     for y in range(GROUND_Y):
         t = y / GROUND_Y
         if t < 0.4:
@@ -303,6 +305,44 @@ def build_background(theme=None):
         else:
             r,g,b = [int(c_mid[i]+(c_bot[i]-c_mid[i])*((t-0.4)/0.6)) for i in range(3)]
         pygame.draw.line(bg, (r, g, b), (0, y), (W, y))
+
+    # 1b. Far canopy parallax layer (top 30% of sky) — dark silhouette tree crowns
+    far_canopy_col = get_color("parallax_mid", theme)
+    _far_canopy_shapes = [
+        # (center_x_frac, radius_x_frac, radius_y_frac) — fractions of W/GROUND_Y
+        (0.04,  0.06, 0.14), (0.14,  0.08, 0.18), (0.26,  0.07, 0.16),
+        (0.38,  0.09, 0.20), (0.50,  0.07, 0.15), (0.62,  0.09, 0.18),
+        (0.74,  0.08, 0.17), (0.86,  0.07, 0.16), (0.96,  0.06, 0.14),
+        (0.20,  0.05, 0.12), (0.45,  0.06, 0.13), (0.70,  0.05, 0.11),
+    ]
+    far_layer = pygame.Surface((W, int(GROUND_Y * 0.32)), pygame.SRCALPHA)
+    for fx, frx, fry in _far_canopy_shapes:
+        cx = int(fx * W)
+        rx = int(frx * W)
+        ry = int(fry * GROUND_Y * 0.32)
+        ry = max(1, ry)
+        pygame.draw.ellipse(far_layer, (*far_canopy_col, 200),
+                            (cx - rx, 0, rx * 2, ry * 2))
+    bg.blit(far_layer, (0, 0))
+
+    # 1c. Mid silhouettes (20-50% height) — tree trunk columns
+    mid_col = get_color("parallax_near", theme)
+    mid_top = int(GROUND_Y * 0.20)
+    mid_bot = int(GROUND_Y * 0.52)
+    mid_h   = mid_bot - mid_top
+    mid_layer = pygame.Surface((W, mid_h), pygame.SRCALPHA)
+    _mid_trunk_xs = [0.06, 0.18, 0.32, 0.48, 0.60, 0.72, 0.84, 0.93]
+    for fx in _mid_trunk_xs:
+        cx  = int(fx * W)
+        trw = int(0.008 * W)
+        # Trunk
+        pygame.draw.rect(mid_layer, (*mid_col, 170),
+                         (cx - trw, 0, trw * 2, mid_h))
+        # Crown blob atop trunk
+        crx = int(0.028 * W); cry = max(1, int(mid_h * 0.30))
+        pygame.draw.ellipse(mid_layer, (*mid_col, 160),
+                            (cx - crx, 0, crx * 2, cry * 2))
+    bg.blit(mid_layer, (0, mid_top))
 
     # 2. Horizontal strata lines
     sc = (26, 24, 8)
@@ -407,13 +447,52 @@ def build_background(theme=None):
             [(svx(x), GROUND_Y + int(y * S)) for x,y in pts], 1)
     pygame.draw.rect(bg, get_color("grass_main", theme), (0, GROUND_Y, W, int(14 * S)))
 
-    # 8. Ground mist
+    # 7b. Near foliage layer — leaf shapes along the ground line edge
+    near_col = get_color("accent_color", theme)
+    foliage_h = int(28 * S)
+    foliage_layer = pygame.Surface((W, foliage_h), pygame.SRCALPHA)
+    _foliage_positions = [
+        # (center_x_frac, leaf_rx_frac, leaf_ry_frac)
+        (0.05, 0.022, 0.80), (0.13, 0.018, 0.70), (0.22, 0.024, 0.85),
+        (0.30, 0.016, 0.65), (0.40, 0.020, 0.75), (0.50, 0.018, 0.70),
+        (0.58, 0.022, 0.80), (0.67, 0.016, 0.65), (0.76, 0.020, 0.75),
+        (0.85, 0.018, 0.70), (0.93, 0.022, 0.80),
+    ]
+    for fx, frx, fry_scale in _foliage_positions:
+        cx  = int(fx * W)
+        lrx = max(1, int(frx * W))
+        lry = max(1, int(foliage_h * fry_scale))
+        pygame.draw.ellipse(foliage_layer, (*near_col, 130),
+                            (cx - lrx, foliage_h - lry, lrx * 2, lry * 2))
+    bg.blit(foliage_layer, (0, GROUND_Y - foliage_h + int(10 * S)))
+
+    # 8. Ground mist — original soft green gradient
     mist_h = int(80 * S)
     mist = pygame.Surface((W, mist_h), pygame.SRCALPHA)
     for my in range(mist_h):
         a = int(70 * (1.0 - my / mist_h))
         pygame.draw.line(mist, (26, 48, 20, a), (0, my), (W, my))
     bg.blit(mist, (0, GROUND_Y - int(60 * S)))
+
+    # 8b. Ground fog — semi-transparent cloud shapes just above ground
+    fog_band_h = int(30 * S)
+    fog_y      = GROUND_Y - fog_band_h
+    fog_layer  = pygame.Surface((W, fog_band_h), pygame.SRCALPHA)
+    _fog_clouds = [
+        # (center_x_frac, rx_frac, ry_frac, alpha)
+        (0.10, 0.14, 0.55, 45), (0.32, 0.16, 0.60, 55),
+        (0.55, 0.15, 0.55, 50), (0.78, 0.14, 0.60, 45),
+        (0.20, 0.10, 0.45, 30), (0.65, 0.11, 0.50, 35),
+        (0.90, 0.09, 0.45, 28),
+    ]
+    for fx, frx, fry_s, alpha in _fog_clouds:
+        cx  = int(fx * W)
+        rx  = max(1, int(frx * W))
+        ry  = max(1, int(fog_band_h * fry_s))
+        cy  = int(fog_band_h * 0.6)
+        pygame.draw.ellipse(fog_layer, (255, 255, 255, alpha),
+                            (cx - rx, cy - ry, rx * 2, ry * 2))
+    bg.blit(fog_layer, (0, fog_y))
 
     return bg
 

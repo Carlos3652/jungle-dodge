@@ -168,21 +168,21 @@ THEMES: Dict[str, Dict[str, Union[str, Tuple[int, int, int]]]] = {
         "warning_color": (220, 50, 50),       # red
 
         # ---- Sky / Background ----
-        "sky_top": (6, 14, 8),
-        "sky_horizon": (14, 30, 12),
+        "sky_top": (4, 10, 6),
+        "sky_horizon": (10, 25, 10),
         "parallax_mid": (10, 22, 10),
         "parallax_near": (18, 38, 16),
 
         # ---- Ground ----
-        "ground_base": (60, 40, 20),
-        "ground_edge": (80, 55, 30),
-        "grass_main": (44, 92, 32),
-        "grass_highlight": (60, 120, 40),
+        "ground_base": (55, 35, 18),
+        "ground_edge": (75, 50, 25),
+        "grass_main": (38, 85, 28),
+        "grass_highlight": (55, 115, 35),
 
         # ---- Character ----
-        "char_jacket": (200, 170, 100),       # shirt
-        "char_hat": (140, 100, 50),
-        "char_hat_band": (100, 70, 35),
+        "char_jacket": (185, 155, 90),        # leather jacket warm tone
+        "char_hat": (130, 90, 45),
+        "char_hat_band": (190, 145, 45),      # gold hat band
         "char_skin": (220, 180, 130),
         "char_pants": (80, 60, 40),
         "char_boots": (50, 35, 20),
@@ -190,14 +190,14 @@ THEMES: Dict[str, Dict[str, Union[str, Tuple[int, int, int]]]] = {
         "char_hit_flash": (220, 50, 50),      # red
 
         # ---- Obstacles ----
-        "vine_base": (38, 212, 72),           # neon green
+        "vine_base": (32, 195, 65),           # natural green vine
         "vine_highlight": (15, 110, 35),
         "bomb_body": (25, 25, 25),
-        "bomb_fuse": (255, 90, 20),           # neon orange
+        "bomb_fuse": (255, 90, 20),           # coiled fuse neon orange
         "bomb_warning": (255, 50, 50),
-        "spike_base": (200, 70, 255),         # electric purple
+        "spike_base": (190, 65, 240),         # bone-ivory spike with purple tint
         "spike_tip": (130, 35, 180),
-        "boulder_base": (140, 115, 85),
+        "boulder_base": (130, 108, 80),       # earth-tone boulder
         "boulder_crack": (100, 80, 60),
         "canopy_drop_base": (34, 140, 50),
         "croc_base": (50, 100, 40),
