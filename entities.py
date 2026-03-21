@@ -419,6 +419,11 @@ class Spike(Obstacle):
         self.y  = float(-self.SH)
         mult    = 1 + (level - 1) * SPEED_SCALE * 1.3
         self.vy = (260 + level * 38) * mult * SY
+        # Wobble support (jd-15): enabled for L10+ spikes
+        self.wobble = False
+        self.wobble_amp = 0.0    # pixels of X oscillation
+        self.wobble_freq = 0.0   # radians per second
+        self._wobble_t = 0.0     # internal phase accumulator
 
     @property
     def rect(self):
@@ -426,6 +431,10 @@ class Spike(Obstacle):
 
     def update(self, dt, player):
         self.y += self.vy * dt
+        if self.wobble:
+            self._wobble_t += dt * self.wobble_freq
+            self.x += math.sin(self._wobble_t) * self.wobble_amp * dt
+            self.x = max(float(self.SW), min(float(W - self.SW), self.x))
         if self.y >= GROUND_Y:
             self.scored = True
             self.alive  = False

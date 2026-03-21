@@ -41,9 +41,18 @@ from entities import (
 )
 from particles import ParticleSystem
 from persistence import PersistenceManager
+from boss_data import get_boss_wave, is_boss_level
 import hud
 from hud import HudCache
 import themes
+
+# Obstacle class name -> class mapping (for boss script spawning)
+_OBS_CLASS_MAP = {
+    "Vine": Vine,
+    "Bomb": Bomb,
+    "Spike": Spike,
+    "Boulder": Boulder,
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,6 +95,15 @@ class GameContext:
     croc_interval: float = 0.0  # randomized each reset
     ground_hazard_timer: float = 0.0
     ground_hazard_interval: float = 0.0  # randomized each reset
+
+    # Boss wave state (jd-15)
+    boss_active: bool = False
+    boss_script: list = field(default_factory=list)
+    boss_script_idx: int = 0
+    boss_elapsed: float = 0.0
+    boss_reward: int = 0
+    boss_duration: float = 0.0
+    boss_name: str = ""
 
     # HUD cache (lazy-init)
     hud_cache: Optional[hud.HudCache] = None
@@ -241,6 +259,14 @@ def _new_game(ctx: GameContext) -> None:
     ctx.shield_active  = False
     ctx.magnet_multiplier = 1.0
     ctx._pre_slowmo_speed_mult = ctx.speed_mult
+    # jd-15: reset boss state
+    ctx.boss_active = False
+    ctx.boss_script = []
+    ctx.boss_script_idx = 0
+    ctx.boss_elapsed = 0.0
+    ctx.boss_reward = 0
+    ctx.boss_duration = 0.0
+    ctx.boss_name = ""
     if ctx.hud_cache is None:
         ctx.hud_cache = hud.HudCache()
     _reset_level(ctx)
@@ -291,6 +317,14 @@ def _reset_level(ctx: GameContext) -> None:
     ctx.croc_interval = random.uniform(12.0, 18.0)
     ctx.ground_hazard_timer = 0.0
     ctx.ground_hazard_interval = random.uniform(12.0, 18.0)
+    # jd-15: reset boss wave state for new level
+    ctx.boss_active = False
+    ctx.boss_script = []
+    ctx.boss_script_idx = 0
+    ctx.boss_elapsed = 0.0
+    ctx.boss_reward = 0
+    ctx.boss_duration = 0.0
+    ctx.boss_name = ""
 
 
 def _spawn_rate(level: int) -> float:
@@ -348,6 +382,11 @@ def _maybe_variant(kind, level, spawn_x, speed_mult):
     cls = {"vine": Vine, "bomb": Bomb, "spike": Spike, "boulder": Boulder}[kind]
     obs = cls(level, spawn_x=spawn_x)
     obs.vy *= speed_mult
+    # jd-15: wobble spikes at L10+
+    if kind == "spike" and level >= 10 and isinstance(obs, Spike):
+        obs.wobble = True
+        obs.wobble_amp = random.uniform(60, 120) * SX
+        obs.wobble_freq = random.uniform(6.0, 12.0)
     return [obs]
 
 
@@ -382,6 +421,22 @@ def _spawn(ctx: GameContext) -> None:
     }
     sx = _spawn_x_near_player(ctx.player, margins[kind], ctx.level)
 
+    # jd-15: L10+ personality upgrades
+    if ctx.level >= 10:
+        # Tracking bombs: bias spawn_x 15% toward player
+        if kind == "bomb":
+            bias = 0.15
+            sx = int(sx + (ctx.player.x - sx) * bias)
+            sx = max(margins[kind], min(W - margins[kind], sx))
+
+        # Paired vines: 30% chance to spawn a second vine
+        if kind == "vine" and random.random() < 0.30:
+            sep = int(W * 0.3)
+            sx2 = sx + sep if sx + sep <= W - margins["vine"] else sx - sep
+            sx2 = max(margins["vine"], min(W - margins["vine"], sx2))
+            obs_list2 = _maybe_variant("vine", ctx.level, sx2, ctx.speed_mult)
+            ctx.obstacles.extend(obs_list2)
+
     # New obstacle types are not routed through _maybe_variant
     if kind == "canopy_drop":
         obs = CanopyDrop(ctx.level, spawn_x=sx)
@@ -400,6 +455,18 @@ def _spawn(ctx: GameContext) -> None:
     else:
         obs_list = _maybe_variant(kind, ctx.level, sx, ctx.speed_mult)
         ctx.obstacles.extend(obs_list)
+
+
+def _spawn_boss_obstacle(ctx: GameContext, cls_name: str, x_pct: float) -> None:
+    """Spawn a single obstacle from a boss script entry."""
+    cls = _OBS_CLASS_MAP.get(cls_name)
+    if cls is None:
+        return
+    spawn_x = int(x_pct * W)
+    spawn_x = max(int(40 * SX), min(W - int(40 * SX), spawn_x))
+    obs = cls(ctx.level, spawn_x=spawn_x)
+    obs.vy *= ctx.speed_mult
+    ctx.obstacles.append(obs)
 
 
 def _get_wave_phase_modifier(level_t: float):
@@ -639,45 +706,75 @@ class PlayState(State):
             )
 
         ctx.level_timer += dt
-        if ctx.level_timer >= LEVEL_TIME:
-            ctx.level    += 1
-            ctx.manager.replace(LevelUpState())
-            return
 
-        # Wave rhythm — get current phase modifier
-        wave_mod, wave_phase = _get_wave_phase_modifier(ctx.level_timer)
+        # ── Boss wave mode (jd-15) ───────────────────────────────────────
+        if ctx.boss_active:
+            ctx.boss_elapsed += dt
+            # Spawn obstacles per boss script
+            while (ctx.boss_script_idx < len(ctx.boss_script)
+                   and ctx.boss_elapsed >= ctx.boss_script[ctx.boss_script_idx][0]):
+                _, cls_name, x_pct = ctx.boss_script[ctx.boss_script_idx]
+                _spawn_boss_obstacle(ctx, cls_name, x_pct)
+                ctx.boss_script_idx += 1
+            # Boss wave complete
+            if ctx.boss_elapsed >= ctx.boss_duration:
+                ctx.score += ctx.boss_reward
+                ctx.particles.pop_text(
+                    W // 2, H // 2 - int(40 * S),
+                    f"BOSS CLEAR! +{ctx.boss_reward}",
+                    themes.get_color("streak_gold", ctx.theme))
+                ctx.boss_active = False
+                ctx.level += 1
+                ctx.manager.replace(LevelUpState())
+                return
+        else:
+            # Normal level timer end
+            if ctx.level_timer >= LEVEL_TIME:
+                next_level = ctx.level + 1
+                # Check if the NEXT level is a boss level
+                if is_boss_level(next_level):
+                    ctx.level += 1
+                    boss = get_boss_wave(ctx.level)
+                    ctx.manager.push(BossIntroState(boss["name"]))
+                    return
+                ctx.level += 1
+                ctx.manager.replace(LevelUpState())
+                return
 
-        # Spawn (apply wave modifier to base interval)
-        ctx.spawn_timer += dt
-        modified_rate = _spawn_rate(ctx.level) * wave_mod
-        if ctx.spawn_timer >= modified_rate:
-            ctx.spawn_timer = 0.0
-            if wave_phase == "crescendo":
-                _spawn_dual(ctx)
-            else:
-                _spawn(ctx)
+            # Wave rhythm — get current phase modifier
+            wave_mod, wave_phase = _get_wave_phase_modifier(ctx.level_timer)
 
-        # ── Special obstacle timers (jd-14) ─────────────────────────────
-        # CrocSnap: L4+, own timer
-        if ctx.level >= 4:
-            ctx.croc_timer += dt
-            if ctx.croc_timer >= ctx.croc_interval:
-                ctx.croc_timer = 0.0
-                ctx.croc_interval = random.uniform(12.0, 18.0)
-                croc = CrocSnap(ctx.level)
-                croc.speed *= ctx.speed_mult
-                croc.vy = croc.speed
-                ctx.obstacles.append(croc)
+            # Spawn (apply wave modifier to base interval)
+            ctx.spawn_timer += dt
+            modified_rate = _spawn_rate(ctx.level) * wave_mod
+            if ctx.spawn_timer >= modified_rate:
+                ctx.spawn_timer = 0.0
+                if wave_phase == "crescendo":
+                    _spawn_dual(ctx)
+                else:
+                    _spawn(ctx)
 
-        # GroundHazard: L5+, own timer
-        if ctx.level >= 5:
-            ctx.ground_hazard_timer += dt
-            if ctx.ground_hazard_timer >= ctx.ground_hazard_interval:
-                ctx.ground_hazard_timer = 0.0
-                ctx.ground_hazard_interval = random.uniform(12.0, 18.0)
-                sx = _spawn_x_near_player(ctx.player, int(80 * SX), ctx.level)
-                gh = GroundHazard(ctx.level, spawn_x=sx)
-                ctx.obstacles.append(gh)
+            # ── Special obstacle timers (jd-14) ─────────────────────────────
+            # CrocSnap: L4+, own timer
+            if ctx.level >= 4:
+                ctx.croc_timer += dt
+                if ctx.croc_timer >= ctx.croc_interval:
+                    ctx.croc_timer = 0.0
+                    ctx.croc_interval = random.uniform(12.0, 18.0)
+                    croc = CrocSnap(ctx.level)
+                    croc.speed *= ctx.speed_mult
+                    croc.vy = croc.speed
+                    ctx.obstacles.append(croc)
+
+            # GroundHazard: L5+, own timer
+            if ctx.level >= 5:
+                ctx.ground_hazard_timer += dt
+                if ctx.ground_hazard_timer >= ctx.ground_hazard_interval:
+                    ctx.ground_hazard_timer = 0.0
+                    ctx.ground_hazard_interval = random.uniform(12.0, 18.0)
+                    sx = _spawn_x_near_player(ctx.player, int(80 * SX), ctx.level)
+                    gh = GroundHazard(ctx.level, spawn_x=sx)
+                    ctx.obstacles.append(gh)
 
         # ── Power-up spawn timer (jd-12) ──────────────────────────────────
         ctx.powerup_spawn_timer += dt
@@ -828,7 +925,105 @@ class PlayState(State):
                      max_lives=_diff["lives"],
                      active_powerup=ctx.active_powerup,
                      powerup_timer=ctx.powerup_timer,
-                     shield_active=ctx.shield_active)
+                     shield_active=ctx.shield_active,
+                     boss_active=ctx.boss_active,
+                     boss_elapsed=ctx.boss_elapsed,
+                     boss_duration=ctx.boss_duration,
+                     boss_name=ctx.boss_name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  BossIntroState (jd-15) — 3.5s boss name card
+# ─────────────────────────────────────────────────────────────────────────────
+class BossIntroState(State):
+    """Show a dramatic boss name card, then start boss mode."""
+
+    DURATION = 3.5
+
+    def __init__(self, boss_name: str = ""):
+        self._boss_name = boss_name
+        self._timer = 0.0
+
+    def enter(self, ctx):
+        self._timer = 0.0
+
+    def handle_event(self, ctx, event):
+        if event.type != pygame.KEYDOWN:
+            return
+        if event.key == pygame.K_F11:
+            ctx.toggle_fullscreen()
+
+    def update(self, ctx, dt):
+        self._timer += dt
+        if ctx.player is not None:
+            ctx.player.tick_timers(dt)
+        if self._timer >= self.DURATION:
+            # Pop intro, activate boss mode in PlayState
+            boss = get_boss_wave(ctx.level)
+            if boss:
+                ctx.boss_active = True
+                ctx.boss_script = list(boss["script"])
+                ctx.boss_script_idx = 0
+                ctx.boss_elapsed = 0.0
+                ctx.boss_reward = boss["reward"]
+                ctx.boss_duration = boss["duration"]
+                ctx.boss_name = boss["name"]
+            _reset_level(ctx)
+            # Keep boss state through reset
+            if boss:
+                ctx.boss_active = True
+                ctx.boss_script = list(boss["script"])
+                ctx.boss_script_idx = 0
+                ctx.boss_elapsed = 0.0
+                ctx.boss_reward = boss["reward"]
+                ctx.boss_duration = boss["duration"]
+                ctx.boss_name = boss["name"]
+            ctx.manager.pop()  # pop BossIntroState, returns to PlayState
+
+    def draw(self, ctx):
+        # Draw the game scene underneath
+        if ctx.player is not None:
+            _draw_scene(ctx)
+
+        # Dark overlay
+        ov = pygame.Surface((W, H), pygame.SRCALPHA)
+        ov.fill((0, 0, 0, 180))
+        ctx.screen.blit(ov, (0, 0))
+
+        # Boss wave title
+        progress = min(1.0, self._timer / self.DURATION)
+        # Scale up from 0 to full in first 0.5s
+        scale = min(1.0, self._timer / 0.5)
+
+        from constants import F_HUGE, F_LARGE, F_MED
+        warning_col = themes.get_color("warning_color", ctx.theme)
+        gold_col = themes.get_color("streak_gold", ctx.theme)
+
+        # "BOSS WAVE" label
+        label = F_LARGE.render("BOSS WAVE", True, warning_col)
+        lx = W // 2 - label.get_width() // 2
+        ly = H // 2 - int(60 * S)
+        ctx.screen.blit(label, (lx, ly))
+
+        # Boss name
+        name_surf = F_HUGE.render(self._boss_name, True, gold_col)
+        nx = W // 2 - name_surf.get_width() // 2
+        ny = H // 2 + int(10 * S)
+        ctx.screen.blit(name_surf, (nx, ny))
+
+        # Border lines
+        border_col = warning_col
+        border_y1 = ly - int(20 * S)
+        border_y2 = ny + name_surf.get_height() + int(20 * S)
+        line_w = int(400 * SX)
+        pygame.draw.line(ctx.screen, border_col,
+                         (W // 2 - line_w, border_y1),
+                         (W // 2 + line_w, border_y1),
+                         max(1, int(3 * S)))
+        pygame.draw.line(ctx.screen, border_col,
+                         (W // 2 - line_w, border_y2),
+                         (W // 2 + line_w, border_y2),
+                         max(1, int(3 * S)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

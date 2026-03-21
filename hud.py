@@ -636,7 +636,8 @@ def draw_wave_phase_bar(screen, level_timer, cache=None):
 
 
 def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False, theme=None, max_lives=None,
-             active_powerup=None, powerup_timer=0.0, shield_active=False):
+             active_powerup=None, powerup_timer=0.0, shield_active=False,
+             boss_active=False, boss_elapsed=0.0, boss_duration=0.0, boss_name=""):
     """Draw the bottom HUD bar with score, level, time, lives, streak badge, wave phase bar, and progress bar."""
     if player is None:
         return
@@ -779,8 +780,34 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
             screen.blit(pill_s, (pu_x, pu_y))
             screen.blit(pu_txt, (pu_x + pu_pad_x, pu_y + pu_pad_y))
 
+    # ── Boss wave HUD indicator (jd-15) ─────────────────────────────────
+    if boss_active and boss_duration > 0:
+        bw_label = F_SMALL.render(f"BOSS WAVE: {boss_name}", True,
+                                  get_color("warning_color", theme))
+        bw_x = W // 2 - bw_label.get_width() // 2
+        bw_y = int(16 * S)
+        screen.blit(bw_label, (bw_x, bw_y))
+
+        # Progress bar
+        bar_total_w = int(400 * SX)
+        bar_h = int(10 * S)
+        bar_x = W // 2 - bar_total_w // 2
+        bar_y = bw_y + bw_label.get_height() + int(6 * S)
+        progress = min(1.0, boss_elapsed / boss_duration)
+        fill_w = int(bar_total_w * progress)
+
+        pygame.draw.rect(screen, (40, 20, 20), (bar_x, bar_y, bar_total_w, bar_h),
+                         border_radius=max(1, int(3 * S)))
+        if fill_w > 0:
+            pygame.draw.rect(screen, get_color("warning_color", theme),
+                             (bar_x, bar_y, fill_w, bar_h),
+                             border_radius=max(1, int(3 * S)))
+        pygame.draw.rect(screen, get_color("warning_color", theme),
+                         (bar_x, bar_y, bar_total_w, bar_h), 1,
+                         border_radius=max(1, int(3 * S)))
+
     # Wave phase bar (above HUD panel, only during active gameplay)
-    if not is_levelup:
+    if not is_levelup and not boss_active:
         draw_wave_phase_bar(screen, level_timer, cache)
 
 
