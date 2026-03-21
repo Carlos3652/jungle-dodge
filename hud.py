@@ -556,7 +556,8 @@ def draw_wave_phase_bar(screen, level_timer, cache=None):
     pygame.draw.rect(screen, (80, 80, 80), (0, bar_y, W, bar_h), 1)
 
 
-def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False, theme=None, max_lives=None):
+def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_levelup=False, theme=None, max_lives=None,
+             active_powerup=None, powerup_timer=0.0, shield_active=False):
     """Draw the bottom HUD bar with score, level, time, lives, streak badge, wave phase bar, and progress bar."""
     if player is None:
         return
@@ -663,6 +664,41 @@ def draw_hud(screen, cache, score, level, level_timer, player, streak=0, is_leve
                                  (lx + leaf_s, bar_y + bar_h // 2),
                                  (lx - leaf_s, bar_y + bar_h)])
         pygame.draw.rect(screen, get_color("vine_highlight", theme), (bar_x, bar_y, bar_w, bar_h), 1, border_radius=brd)
+
+    # ── Power-up status pill (jd-12) ─────────────────────────────────────
+    if active_powerup is not None:
+        _pu_color_keys = {
+            "shield": "powerup_shield",
+            "slowmo": "powerup_slowmo",
+            "magnet": "powerup_magnet",
+        }
+        pu_col = get_color(_pu_color_keys.get(active_powerup, "powerup_shield"), theme)
+
+        if active_powerup == "shield" and shield_active:
+            pu_label = "SHIELD"
+        elif active_powerup == "shield" and not shield_active:
+            pu_label = ""  # shield used, will be deactivated next frame
+        elif active_powerup == "slowmo":
+            pu_label = f"SLOW {powerup_timer:.1f}s"
+        elif active_powerup == "magnet":
+            pu_label = f"x3 {powerup_timer:.1f}s"
+        else:
+            pu_label = active_powerup.upper()
+
+        if pu_label:
+            pu_txt = F_TINY.render(pu_label, True, (255, 255, 255))
+            pu_pad_x = int(10 * SX)
+            pu_pad_y = int(4 * S)
+            pu_w = pu_txt.get_width() + pu_pad_x * 2
+            pu_h = pu_txt.get_height() + pu_pad_y * 2
+            pu_x = W - int(122 * SX) - pu_w - int(16 * SX)
+            pu_y = py + int(6 * S)
+            pill_s = pygame.Surface((pu_w, pu_h), pygame.SRCALPHA)
+            pill_s.fill((*pu_col, 180))
+            pygame.draw.rect(pill_s, pu_col, (0, 0, pu_w, pu_h),
+                             max(1, int(2 * S)), border_radius=int(pu_h // 2))
+            screen.blit(pill_s, (pu_x, pu_y))
+            screen.blit(pu_txt, (pu_x + pu_pad_x, pu_y + pu_pad_y))
 
     # Wave phase bar (above HUD panel, only during active gameplay)
     if not is_levelup:

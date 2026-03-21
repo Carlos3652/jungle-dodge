@@ -101,6 +101,20 @@ CRESCENDO_SEPARATION = 0.5
 
 OBS_TYPES        = ("vine", "bomb", "spike", "boulder")
 OBS_WEIGHTS      = (3, 2, 3, 2)
+
+# Power-ups (jd-12)
+POWERUP_KINDS        = ("shield", "slowmo", "magnet")
+POWERUP_SPEED_FRAC   = 0.6       # 60% of vine base speed
+POWERUP_RADIUS       = int(20 * S)
+POWERUP_SPAWN_MIN    = 12.0      # seconds between spawns (lower bound)
+POWERUP_SPAWN_MAX    = 18.0      # seconds between spawns (upper bound)
+POWERUP_NO_SPAWN_T   = 15.0      # no power-ups in first 15s of a level
+POWERUP_MIN_SEP      = W * 0.3   # minimum separation between power-ups on screen
+SLOWMO_FACTOR        = 0.4       # obstacles at 40% speed
+SLOWMO_DURATION      = 5.0       # seconds
+MAGNET_MULTIPLIER    = 3.0       # dodge pts x3
+MAGNET_DURATION      = 8.0       # seconds
+SHIELD_PARTICLES     = 12        # shatter particle count
 MAX_NAME_LEN     = 5
 LEADERBOARD_SIZE = 10
 

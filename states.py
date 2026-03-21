@@ -28,8 +28,13 @@ from constants import (
     STREAK_TIERS, STREAK_LOST_THRESHOLD,
     WAVE_PHASES, CRESCENDO_SEPARATION,
     DIFFICULTIES, DIFFICULTY_ORDER,
+    POWERUP_KINDS, POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX,
+    POWERUP_NO_SPAWN_T, POWERUP_MIN_SEP,
+    SLOWMO_FACTOR, SLOWMO_DURATION,
+    MAGNET_MULTIPLIER, MAGNET_DURATION,
+    SHIELD_PARTICLES,
 )
-from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder
+from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder, PowerUp
 from particles import ParticleSystem
 from persistence import PersistenceManager
 import hud
@@ -62,6 +67,15 @@ class GameContext:
     near_misses: int = 0  # run-stat counter for near-miss events (jd-10)
     difficulty: str = "normal"       # jd-11: active difficulty key
     speed_mult: float = 1.0          # jd-11: obstacle speed multiplier from difficulty
+
+    # Power-ups (jd-12)
+    powerups: List = field(default_factory=list)
+    active_powerup: Optional[str] = None
+    powerup_timer: float = 0.0
+    shield_active: bool = False
+    magnet_multiplier: float = 1.0
+    powerup_spawn_timer: float = 0.0
+    _pre_slowmo_speed_mult: float = 1.0  # saved speed_mult before slow-mo
 
     # HUD cache (lazy-init)
     hud_cache: Optional[hud.HudCache] = None
@@ -211,6 +225,12 @@ def _new_game(ctx: GameContext) -> None:
     diff = DIFFICULTIES.get(ctx.difficulty, DIFFICULTIES["normal"])
     ctx.player.lives = diff["lives"]
     ctx.speed_mult   = diff["speed_mult"]
+    # jd-12: reset power-up state
+    ctx.active_powerup = None
+    ctx.powerup_timer  = 0.0
+    ctx.shield_active  = False
+    ctx.magnet_multiplier = 1.0
+    ctx._pre_slowmo_speed_mult = ctx.speed_mult
     if ctx.hud_cache is None:
         ctx.hud_cache = hud.HudCache()
     _reset_level(ctx)
@@ -253,6 +273,9 @@ def _reset_level(ctx: GameContext) -> None:
     ctx.spawn_timer = 0.0
     ctx.particles.clear()
     ctx.levelup_t   = 0.0
+    # jd-12: reset power-up entities and spawn timer for new level
+    ctx.powerups = []
+    ctx.powerup_spawn_timer = 0.0
 
 
 def _spawn_rate(level: int) -> float:
@@ -326,12 +349,66 @@ def _spawn_dual(ctx: GameContext) -> None:
     ctx.obstacles.append(obs2)
 
 
+def _spawn_powerup(ctx: GameContext) -> None:
+    """Spawn a random power-up at a random X position."""
+    kind = random.choice(POWERUP_KINDS)
+    sx = random.randint(int(50 * SX), W - int(50 * SX))
+    pu = PowerUp(kind, ctx.level, spawn_x=sx)
+    pu.vy *= ctx.speed_mult  # apply difficulty scaling
+    ctx.powerups.append(pu)
+
+
+def _deactivate_powerup(ctx: GameContext) -> None:
+    """Deactivate the current power-up effect and restore state."""
+    if ctx.active_powerup == "slowmo":
+        ctx.speed_mult = ctx._pre_slowmo_speed_mult
+    elif ctx.active_powerup == "magnet":
+        ctx.magnet_multiplier = 1.0
+    ctx.active_powerup = None
+    ctx.powerup_timer = 0.0
+    ctx.shield_active = False
+
+
+def _activate_powerup(ctx: GameContext, kind: str) -> None:
+    """Activate a power-up effect, replacing any existing one."""
+    # Deactivate previous power-up if any
+    if ctx.active_powerup is not None:
+        _deactivate_powerup(ctx)
+
+    ctx.active_powerup = kind
+
+    if kind == "shield":
+        ctx.shield_active = True
+        ctx.powerup_timer = 999.0  # shield lasts until hit
+    elif kind == "slowmo":
+        ctx._pre_slowmo_speed_mult = ctx.speed_mult
+        ctx.speed_mult *= SLOWMO_FACTOR
+        ctx.powerup_timer = SLOWMO_DURATION
+    elif kind == "magnet":
+        ctx.magnet_multiplier = MAGNET_MULTIPLIER
+        ctx.powerup_timer = MAGNET_DURATION
+
+
 def _draw_scene(ctx: GameContext) -> None:
-    """Draw background, obstacles, player, and particles."""
+    """Draw background, obstacles, power-ups, player, and particles."""
     ctx.screen.blit(ctx.bg, (0, 0))
     for obs in ctx.obstacles:
         obs.draw(ctx.screen, theme=ctx.theme)
+    for pu in ctx.powerups:
+        pu.draw(ctx.screen, theme=ctx.theme)
     if ctx.player is not None:
+        # Draw shield bubble around player if active
+        if ctx.shield_active:
+            shield_col = themes.get_color("powerup_shield", ctx.theme)
+            bubble_r = int(max(ctx.player.PW, ctx.player.PH) * 0.7)
+            bubble_surf = pygame.Surface((bubble_r * 2, bubble_r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(bubble_surf, (*shield_col, 60),
+                               (bubble_r, bubble_r), bubble_r)
+            pygame.draw.circle(bubble_surf, (*shield_col, 140),
+                               (bubble_r, bubble_r), bubble_r, max(1, int(2 * S)))
+            ctx.screen.blit(bubble_surf,
+                            (ctx.player.x - bubble_r,
+                             ctx.player.y + ctx.player.PH // 2 - bubble_r))
         ctx.player.draw(ctx.screen, ctx.particles, theme=ctx.theme)
     ctx.particles.draw(ctx.screen)
 
@@ -488,9 +565,77 @@ class PlayState(State):
             else:
                 _spawn(ctx)
 
+        # ── Power-up spawn timer (jd-12) ──────────────────────────────────
+        ctx.powerup_spawn_timer += dt
+        if (ctx.level_timer >= POWERUP_NO_SPAWN_T
+                and len(ctx.powerups) == 0
+                and ctx.powerup_spawn_timer >= random.uniform(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX)):
+            ctx.powerup_spawn_timer = 0.0
+            _spawn_powerup(ctx)
+
+        # ── Power-up pickup check (jd-12) ────────────────────────────────
+        for pu in ctx.powerups:
+            if pu.alive and pu.check_pickup(ctx.player):
+                pu.alive = False
+                _activate_powerup(ctx, pu.kind)
+                # Pickup particles
+                pu_color_key = {
+                    "shield": "powerup_shield",
+                    "slowmo": "powerup_slowmo",
+                    "magnet": "powerup_magnet",
+                }.get(pu.kind, "powerup_shield")
+                ctx.particles.emit(
+                    pu.x, pu.y, count=8,
+                    color=themes.get_color(pu_color_key, ctx.theme),
+                    lifetime=0.5,
+                    speed_range=(80 * S, 200 * S),
+                    size=float(int(5 * S)),
+                    size_end=0.0,
+                    alpha=1.0,
+                    alpha_end=0.0,
+                )
+                label = pu.kind.upper() + "!"
+                ctx.particles.pop_text(pu.x, pu.y - int(20 * S), label,
+                                       themes.get_color(pu_color_key, ctx.theme))
+
+        # Update power-up entities
+        for pu in ctx.powerups:
+            pu.update(dt, ctx.player)
+        ctx.powerups = [pu for pu in ctx.powerups if pu.alive]
+
+        # ── Power-up timer tick (jd-12) ──────────────────────────────────
+        if ctx.active_powerup is not None and ctx.active_powerup != "shield":
+            ctx.powerup_timer -= dt
+            if ctx.powerup_timer <= 0:
+                _deactivate_powerup(ctx)
+
         # Hit detection FIRST (BUG-01/02)
         for obs in ctx.obstacles:
             if obs.alive and not obs.did_hit and obs.check_hit(ctx.player):
+                # jd-12: Shield absorption
+                if ctx.shield_active:
+                    ctx.shield_active = False
+                    obs.alive = False
+                    obs.did_hit = True
+                    # Shatter particles
+                    ctx.particles.emit(
+                        obs.x, obs.y, count=SHIELD_PARTICLES,
+                        color=themes.get_color("powerup_shield", ctx.theme),
+                        lifetime=0.6,
+                        speed_range=(100 * S, 300 * S),
+                        size=float(int(6 * S)),
+                        size_end=1.0,
+                        alpha=1.0,
+                        alpha_end=0.0,
+                    )
+                    ctx.particles.pop_text(
+                        ctx.player.x, ctx.player.y - int(20 * S),
+                        "SHIELD!", themes.get_color("powerup_shield", ctx.theme))
+                    if ctx.active_powerup == "shield":
+                        ctx.active_powerup = None
+                        ctx.powerup_timer = 0.0
+                    break
+
                 obs.did_hit = True
                 ctx.player.hit()
                 ctx.particles.pop_text(ctx.player.x, ctx.player.y - int(10 * S),
@@ -507,18 +652,21 @@ class PlayState(State):
         for obs in ctx.obstacles:
             obs.update(dt, ctx.player)
 
-        # Scoring (CRIT-01) — streak multiplier applied
+        # Scoring (CRIT-01) — streak multiplier + magnet multiplier (jd-12) applied
         for obs in ctx.obstacles:
             if obs.scored and not obs._pts and not obs.did_hit:
                 obs._pts = True
                 ctx.streak += 1
-                multiplier = get_streak_multiplier(ctx.streak)
+                multiplier = get_streak_multiplier(ctx.streak) * ctx.magnet_multiplier
                 pts = int(DODGE_PTS * multiplier)
                 ctx.score += pts
                 pop_y = (GROUND_Y - obs.exp_r - int(10 * S)
                          if isinstance(obs, Bomb) else GROUND_Y - int(30 * S))
                 label = f"+{pts}" if multiplier <= 1.0 else f"+{pts} x{multiplier:g}"
-                ctx.particles.pop_text(obs.x, pop_y, label, themes.get_color("hud_primary", ctx.theme))
+                pop_col = (themes.get_color("powerup_magnet", ctx.theme)
+                           if ctx.magnet_multiplier > 1.0
+                           else themes.get_color("hud_primary", ctx.theme))
+                ctx.particles.pop_text(obs.x, pop_y, label, pop_col)
 
         # Near-miss detection (jd-10) — check once per obstacle after it scores
         for obs in ctx.obstacles:
@@ -552,7 +700,10 @@ class PlayState(State):
         _diff = DIFFICULTIES.get(ctx.difficulty, DIFFICULTIES["normal"])
         hud.draw_hud(ctx.screen, ctx.hud_cache, ctx.score, ctx.level, ctx.level_timer,
                      ctx.player, streak=ctx.streak, is_levelup=False, theme=ctx.theme,
-                     max_lives=_diff["lives"])
+                     max_lives=_diff["lives"],
+                     active_powerup=ctx.active_powerup,
+                     powerup_timer=ctx.powerup_timer,
+                     shield_active=ctx.shield_active)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

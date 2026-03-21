@@ -16,6 +16,7 @@ from constants import (
     MAX_LIVES, STUN_SECS, IMMUNE_EXTRA,
     PLAYER_SPD, SPEED_SCALE,
     ROLL_DURATION, ROLL_SPEED_MULT, ROLL_IFRAME, ROLL_COOLDOWN,
+    POWERUP_RADIUS, POWERUP_SPEED_FRAC,
 )
 from themes import get_color
 
@@ -519,3 +520,102 @@ class Boulder(Obstacle):
         pygame.draw.circle(surf, boulder_dk, (cx, cy), self.R, max(1, int(2 * S)))
         pygame.draw.circle(surf, (165, 145, 120),
                            (cx - self.R // 3, cy - self.R // 3), self.R // 4)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PowerUp (jd-12)
+# ─────────────────────────────────────────────────────────────────────────────
+_POWERUP_COLOR_KEYS = {
+    "shield": "powerup_shield",
+    "slowmo": "powerup_slowmo",
+    "magnet": "powerup_magnet",
+}
+
+class PowerUp(Obstacle):
+    """Collectible power-up that falls straight down at 60% vine speed.
+
+    kind: "shield" | "slowmo" | "magnet"
+    """
+    R = POWERUP_RADIUS  # radius of the circle
+
+    def __init__(self, kind, level, spawn_x=None):
+        super().__init__()
+        self.kind = kind
+        self.x = float(
+            spawn_x if spawn_x is not None
+            else random.randint(int(50 * SX), W - int(50 * SX))
+        )
+        self.y = float(-self.R * 2)
+        # 60% of vine base speed (vine base = 90 + level*15, mult applied)
+        vine_base_vy = (90 + level * 15) * (1 + (level - 1) * SPEED_SCALE * 0.8) * SY
+        self.vy = vine_base_vy * POWERUP_SPEED_FRAC
+        self.glow_angle = random.uniform(0, math.pi * 2)
+
+    @property
+    def rect(self):
+        return pygame.Rect(int(self.x) - self.R, int(self.y) - self.R,
+                           self.R * 2, self.R * 2)
+
+    def update(self, dt, player):
+        self.y += self.vy * dt
+        self.glow_angle += dt * 3.0  # rotating ring speed
+        if self.y - self.R > GROUND_Y:
+            self.alive = False  # fell off screen without pickup
+
+    def check_hit(self, player):
+        # Power-ups don't damage the player; pickup is handled separately
+        return False
+
+    def check_pickup(self, player):
+        """Return True if the player overlaps this power-up."""
+        return self.alive and self.rect.colliderect(player.rect)
+
+    def draw(self, surf, theme=None):
+        cx, cy = int(self.x), int(self.y)
+        color_key = _POWERUP_COLOR_KEYS.get(self.kind, "powerup_shield")
+        col = get_color(color_key, theme)
+
+        # Outer glow ring (rotating dashed effect)
+        ring_r = self.R + int(6 * S)
+        num_dashes = 8
+        dash_len = math.pi / (num_dashes * 2)
+        for i in range(num_dashes):
+            start_angle = self.glow_angle + i * (2 * math.pi / num_dashes)
+            end_angle = start_angle + dash_len
+            # Draw arc segment as short line
+            ax1 = cx + int(ring_r * math.cos(start_angle))
+            ay1 = cy + int(ring_r * math.sin(start_angle))
+            ax2 = cx + int(ring_r * math.cos(end_angle))
+            ay2 = cy + int(ring_r * math.sin(end_angle))
+            pygame.draw.line(surf, col, (ax1, ay1), (ax2, ay2), max(1, int(2 * S)))
+
+        # Inner filled circle
+        pygame.draw.circle(surf, col, (cx, cy), self.R)
+
+        # Kind icon (simple distinguishing marks)
+        inner_col = (255, 255, 255)
+        if self.kind == "shield":
+            # Small shield shape (chevron)
+            hw = self.R // 2
+            pts = [(cx - hw, cy - hw), (cx + hw, cy - hw),
+                   (cx + hw, cy + int(2 * S)), (cx, cy + hw),
+                   (cx - hw, cy + int(2 * S))]
+            pygame.draw.polygon(surf, inner_col, pts, max(1, int(2 * S)))
+        elif self.kind == "slowmo":
+            # Clock icon (circle + hands)
+            ir = self.R // 2
+            pygame.draw.circle(surf, inner_col, (cx, cy), ir, max(1, int(2 * S)))
+            pygame.draw.line(surf, inner_col, (cx, cy), (cx, cy - ir + int(2 * S)),
+                             max(1, int(2 * S)))
+            pygame.draw.line(surf, inner_col, (cx, cy),
+                             (cx + ir - int(3 * S), cy), max(1, int(2 * S)))
+        elif self.kind == "magnet":
+            # U-shape magnet
+            hw = self.R // 2
+            pygame.draw.arc(surf, inner_col,
+                            (cx - hw, cy - int(2 * S), hw * 2, hw * 2),
+                            math.pi, 2 * math.pi, max(1, int(3 * S)))
+            pygame.draw.line(surf, inner_col, (cx - hw, cy + hw - int(2 * S)),
+                             (cx - hw, cy - hw), max(1, int(2 * S)))
+            pygame.draw.line(surf, inner_col, (cx + hw, cy + hw - int(2 * S)),
+                             (cx + hw, cy - hw), max(1, int(2 * S)))
