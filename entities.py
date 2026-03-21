@@ -785,6 +785,552 @@ class BouncingSpike(Spike):
         return not player.is_hit_immune() and self.rect.colliderect(player.rect)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  CanopyDrop (jd-14) — L2+: falling leaves with one hidden spike
+# ─────────────────────────────────────────────────────────────────────────────
+class CanopyDrop(Obstacle):
+    """8-12 leaves fall from top; one random leaf hides a spike.
+
+    Telegraph: 0.3s shadow on ground before leaves start falling.
+    Hidden spike reveals at 70% of fall (color change + size increase).
+    Only the spike-leaf does damage.
+    """
+    TELEGRAPH_DUR = 0.3
+    REVEAL_FRAC = 0.7  # reveal spike at 70% of fall
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__()
+        self.x = float(spawn_x if spawn_x is not None else
+                        random.randint(int(50 * SX), W - int(50 * SX)))
+        self.num_leaves = random.randint(8, 12)
+        self.spike_idx = random.randint(0, self.num_leaves - 1)
+
+        # Vine base speed at 60%
+        vine_base = (90 + level * 15) * (1 + (level - 1) * SPEED_SCALE * 0.8) * SY
+        base_vy = vine_base * 0.6
+
+        # Each leaf: (x, y, vy, sway_t, sway_a, sway_s)
+        self.leaves = []
+        for i in range(self.num_leaves):
+            lx = self.x + random.uniform(-80, 80) * SX
+            lx = max(int(20 * SX), min(W - int(20 * SX), lx))
+            ly = float(-random.uniform(10, 60) * SY)
+            lvy = base_vy * random.uniform(0.8, 1.2)
+            sway_t = random.uniform(0, math.pi * 2)
+            sway_a = random.uniform(6, 14) * SX
+            sway_s = random.uniform(1.5, 3.0)
+            self.leaves.append([float(lx), ly, lvy, sway_t, sway_a, sway_s])
+
+        self.telegraph_t = 0.0
+        self.started = False  # leaves start falling after telegraph
+        self.revealed = False  # spike-leaf revealed
+        self._level = level
+        # vy attribute for speed_mult application (apply to all leaves)
+        self.vy = base_vy
+        self.leaf_w = int(15 * S)
+        self.leaf_h = int(10 * S)
+
+    def update(self, dt, player):
+        if not self.started:
+            self.telegraph_t += dt
+            if self.telegraph_t >= self.TELEGRAPH_DUR:
+                self.started = True
+            return
+
+        all_done = True
+        for i, leaf in enumerate(self.leaves):
+            lx, ly, lvy, sway_t, sway_a, sway_s = leaf
+            ly += lvy * dt
+            sway_t += dt * sway_s
+            lx += math.sin(sway_t) * sway_a * dt
+            lx = max(float(self.leaf_w), min(float(W - self.leaf_w), lx))
+            leaf[0], leaf[1], leaf[3] = lx, ly, sway_t
+
+            if ly < GROUND_Y:
+                all_done = False
+
+            # Check reveal threshold for spike leaf
+            if i == self.spike_idx and not self.revealed:
+                fall_frac = (ly + 60 * SY) / (GROUND_Y + 60 * SY)
+                if fall_frac >= self.REVEAL_FRAC:
+                    self.revealed = True
+
+        if all_done:
+            self.scored = True
+            self.alive = False
+
+    def check_hit(self, player):
+        if not self.started or player.is_hit_immune():
+            return False
+        # Only the spike leaf can hit
+        leaf = self.leaves[self.spike_idx]
+        lx, ly = leaf[0], leaf[1]
+        if ly >= GROUND_Y:
+            return False
+        spike_r = int(12 * S) if self.revealed else int(8 * S)
+        dist = math.hypot(lx - player.x, ly - (player.y + player.PH // 2))
+        return dist < spike_r + max(player.PW, player.PH) // 2
+
+    def draw(self, surf, theme=None):
+        base_col = get_color("canopy_drop_base", theme)
+        warn_col = get_color("warning_color", theme)
+
+        # Telegraph: shadow on ground
+        if not self.started:
+            alpha = int(80 * (self.telegraph_t / self.TELEGRAPH_DUR))
+            shadow_w = int(120 * SX)
+            shadow_h = int(16 * SY)
+            shadow_surf = pygame.Surface((shadow_w, shadow_h), pygame.SRCALPHA)
+            pygame.draw.ellipse(shadow_surf, (0, 0, 0, alpha),
+                                (0, 0, shadow_w, shadow_h))
+            surf.blit(shadow_surf, (int(self.x) - shadow_w // 2,
+                                     GROUND_Y - shadow_h // 2))
+            return
+
+        for i, leaf in enumerate(self.leaves):
+            lx, ly = int(leaf[0]), int(leaf[1])
+            if ly >= GROUND_Y:
+                continue
+            if i == self.spike_idx and self.revealed:
+                # Spike leaf: bigger, warning color
+                sw = int(self.leaf_w * 1.4)
+                sh = int(self.leaf_h * 1.4)
+                pygame.draw.ellipse(surf, warn_col,
+                                    (lx - sw // 2, ly - sh // 2, sw, sh))
+                # Small spike triangle
+                tri_h = int(8 * S)
+                pts = [(lx - int(4 * S), ly + sh // 2),
+                       (lx + int(4 * S), ly + sh // 2),
+                       (lx, ly + sh // 2 + tri_h)]
+                pygame.draw.polygon(surf, warn_col, pts)
+            else:
+                pygame.draw.ellipse(surf, base_col,
+                                    (lx - self.leaf_w // 2, ly - self.leaf_h // 2,
+                                     self.leaf_w, self.leaf_h))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CrocSnap (jd-14) — L4+: horizontal ground-level sweep
+# ─────────────────────────────────────────────────────────────────────────────
+class CrocSnap(Obstacle):
+    """Ground-level horizontal sweep at 600*SX px/s. Roll counters it.
+
+    Telegraph: 0.5s — glowing eyes at screen edge before sweep.
+    """
+    TELEGRAPH_DUR = 0.5
+    CROC_H = int(30 * S)
+    CROC_W = int(100 * S)
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__()
+        self.direction = random.choice([-1, 1])
+        self.speed = 600 * SX
+        if self.direction == 1:
+            self.x = float(-self.CROC_W)
+        else:
+            self.x = float(W + self.CROC_W)
+        self.y = float(GROUND_Y - self.CROC_H)
+        self.telegraph_t = 0.0
+        self.started = False
+        # vy attribute for compatibility (not really vertical)
+        self.vy = self.speed
+
+    @property
+    def rect(self):
+        return pygame.Rect(int(self.x), int(self.y), self.CROC_W, self.CROC_H)
+
+    def update(self, dt, player):
+        if not self.started:
+            self.telegraph_t += dt
+            if self.telegraph_t >= self.TELEGRAPH_DUR:
+                self.started = True
+            return
+
+        self.x += self.direction * self.speed * dt
+
+        # Off-screen on the far side -> done
+        if self.direction == 1 and self.x > W + self.CROC_W:
+            self.scored = True
+            self.alive = False
+        elif self.direction == -1 and self.x < -self.CROC_W * 2:
+            self.scored = True
+            self.alive = False
+
+    def check_hit(self, player):
+        if not self.started or player.is_hit_immune():
+            return False
+        return self.rect.colliderect(player.rect)
+
+    def draw(self, surf, theme=None):
+        croc_col = get_color("croc_base", theme)
+        teeth_col = get_color("croc_teeth", theme)
+
+        if not self.started:
+            # Telegraph: glowing eyes at edge
+            eye_x = 0 if self.direction == 1 else W
+            eye_y = int(self.y + self.CROC_H // 3)
+            eye_r = int(6 * S)
+            pulse = 0.5 + 0.5 * math.sin(self.telegraph_t * 10)
+            eye_col = (int(200 * pulse), int(120 * pulse), 0)
+            offset = int(15 * SX) * self.direction
+            pygame.draw.circle(surf, eye_col, (eye_x + offset, eye_y), eye_r)
+            pygame.draw.circle(surf, eye_col,
+                               (eye_x + offset, eye_y + int(12 * S)), eye_r)
+            return
+
+        cx, cy = int(self.x), int(self.y)
+        # Body rectangle
+        pygame.draw.rect(surf, croc_col,
+                         (cx, cy, self.CROC_W, self.CROC_H),
+                         border_radius=int(4 * S))
+
+        # Teeth along the top edge
+        tooth_w = int(6 * S)
+        tooth_h = int(8 * S)
+        num_teeth = self.CROC_W // (tooth_w * 2)
+        for i in range(num_teeth):
+            tx = cx + tooth_w + i * tooth_w * 2
+            pts = [(tx, cy), (tx + tooth_w, cy), (tx + tooth_w // 2, cy - tooth_h)]
+            pygame.draw.polygon(surf, teeth_col, pts)
+
+        # Eye
+        eye_off = int(20 * S) if self.direction == 1 else self.CROC_W - int(20 * S)
+        pygame.draw.circle(surf, (200, 120, 0),
+                           (cx + eye_off, cy + int(8 * S)), int(5 * S))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PoisonPuddle (jd-14) — L5+: ground hazard with standing timer
+# ─────────────────────────────────────────────────────────────────────────────
+class PoisonPuddle(Obstacle):
+    """Ground puddle. Standing in it for 1.5s cumulative -> stun.
+
+    Max 2 on screen (enforced by spawn logic). Lifetime 8-12s.
+    Telegraph: 0.3s ground crack before puddle appears.
+    """
+    TELEGRAPH_DUR = 0.3
+    STUN_THRESHOLD = 1.5
+    RADIUS = int(80 * S)
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__()
+        self.x = float(spawn_x if spawn_x is not None else
+                        random.randint(int(100 * SX), W - int(100 * SX)))
+        self.y = float(GROUND_Y)
+        self.telegraph_t = 0.0
+        self.active = False
+        self.overlap_t = 0.0  # cumulative time player stands in puddle
+        self.lifetime = random.uniform(8.0, 12.0)
+        self.age = 0.0
+        self.vy = 0.0  # no vertical speed, for compatibility
+
+    def update(self, dt, player):
+        if not self.active:
+            self.telegraph_t += dt
+            if self.telegraph_t >= self.TELEGRAPH_DUR:
+                self.active = True
+            return
+
+        self.age += dt
+        if self.age >= self.lifetime:
+            self.scored = True
+            self.alive = False
+            return
+
+        # Check overlap with player
+        dist = math.hypot(self.x - player.x,
+                          self.y - (player.y + player.PH))
+        if dist < self.RADIUS + max(player.PW, player.PH) // 2:
+            self.overlap_t += dt
+            if self.overlap_t >= self.STUN_THRESHOLD:
+                self.overlap_t = 0.0  # reset for next stun
+                if not player.is_hit_immune():
+                    player.hit()
+                    self.did_hit = True
+        else:
+            # Reset overlap timer when player leaves
+            self.overlap_t = max(0.0, self.overlap_t - dt * 0.5)
+
+    def check_hit(self, player):
+        # Damage is handled in update() via standing timer
+        return False
+
+    def draw(self, surf, theme=None):
+        puddle_col = get_color("poison_puddle", theme)
+
+        if not self.active:
+            # Telegraph: ground crack/bubbles
+            cx, cy = int(self.x), int(self.y)
+            alpha = int(120 * (self.telegraph_t / self.TELEGRAPH_DUR))
+            crack_len = int(40 * S)
+            crack_col = (puddle_col[0], puddle_col[1], puddle_col[2])
+            for angle in [0, math.pi * 0.6, math.pi * 1.3]:
+                ex = cx + int(crack_len * math.cos(angle))
+                ey = cy + int(crack_len * 0.3 * math.sin(angle))
+                pygame.draw.line(surf, crack_col, (cx, cy), (ex, ey),
+                                 max(1, int(2 * S)))
+            return
+
+        cx, cy = int(self.x), int(self.y)
+        # Fade out near end of lifetime
+        fade = 1.0
+        if self.lifetime - self.age < 2.0:
+            fade = max(0.0, (self.lifetime - self.age) / 2.0)
+
+        alpha = int(100 * fade)
+        puddle_surf = pygame.Surface((self.RADIUS * 2, self.RADIUS), pygame.SRCALPHA)
+        pygame.draw.ellipse(puddle_surf,
+                            (puddle_col[0], puddle_col[1], puddle_col[2], alpha),
+                            (0, 0, self.RADIUS * 2, self.RADIUS))
+        surf.blit(puddle_surf, (cx - self.RADIUS, cy - self.RADIUS // 2))
+
+        # Bubbles
+        bubble_t = self.age * 3
+        for i in range(3):
+            bx = cx + int(math.sin(bubble_t + i * 2.1) * self.RADIUS * 0.5)
+            by = cy - int(abs(math.sin(bubble_t * 0.7 + i)) * int(12 * S))
+            br = int((2 + math.sin(bubble_t + i)) * S)
+            pygame.draw.circle(surf, (puddle_col[0], puddle_col[1], puddle_col[2]),
+                               (bx, by), max(1, br))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ScreechBat (jd-14) — L7+: diving arc with 1s tracking
+# ─────────────────────────────────────────────────────────────────────────────
+class ScreechBat(Obstacle):
+    """Spawns at top, tracks player X for 1s, then dives in an arc.
+
+    Telegraph: 0.5s exclamation mark at spawn point.
+    """
+    TELEGRAPH_DUR = 0.5
+    TRACK_DUR = 1.0
+    HIT_R = int(25 * S)
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__()
+        self.x = float(spawn_x if spawn_x is not None else
+                        random.randint(int(80 * SX), W - int(80 * SX)))
+        self.y = float(-int(30 * SY))
+        self.speed = 200 * SY
+        self.vy = self.speed  # for speed_mult compatibility
+        self.telegraph_t = 0.0
+        self.tracking = False
+        self.diving = False
+        self.track_t = 0.0
+        self.target_x = self.x  # updated during tracking
+        self.flap_t = 0.0
+
+        # Dive arc control points (set when dive begins)
+        self._dive_start_x = self.x
+        self._dive_start_y = self.y
+        self._dive_t = 0.0
+        self._dive_dur = 0.0  # computed when dive starts
+
+    def update(self, dt, player):
+        self.flap_t += dt * 6
+
+        if not self.tracking and not self.diving:
+            self.telegraph_t += dt
+            if self.telegraph_t >= self.TELEGRAPH_DUR:
+                self.tracking = True
+            return
+
+        if self.tracking:
+            self.track_t += dt
+            self.target_x = player.x
+            # Hover near top, slowly drifting toward player
+            self.x += (self.target_x - self.x) * 2.0 * dt
+            self.y = float(-int(30 * SY)) + math.sin(self.track_t * 3) * int(10 * SY)
+
+            if self.track_t >= self.TRACK_DUR:
+                self.tracking = False
+                self.diving = True
+                self._dive_start_x = self.x
+                self._dive_start_y = self.y
+                self._dive_t = 0.0
+                # Dive duration based on distance
+                dist = math.hypot(self.target_x - self.x,
+                                  GROUND_Y - self.y)
+                self._dive_dur = max(0.5, dist / self.speed)
+            return
+
+        if self.diving:
+            self._dive_t += dt
+            t = min(1.0, self._dive_t / self._dive_dur)
+
+            # Quadratic bezier arc: start -> control (mid-high) -> target ground
+            ctrl_x = (self._dive_start_x + self.target_x) / 2
+            ctrl_y = self._dive_start_y - int(100 * SY)  # arc upward first
+
+            # B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
+            omt = 1.0 - t
+            self.x = omt * omt * self._dive_start_x + 2 * omt * t * ctrl_x + t * t * self.target_x
+            self.y = omt * omt * self._dive_start_y + 2 * omt * t * ctrl_y + t * t * GROUND_Y
+
+            if t >= 1.0:
+                self.scored = True
+                self.alive = False
+
+    def check_hit(self, player):
+        if not self.diving or player.is_hit_immune():
+            return False
+        dist = math.hypot(self.x - player.x,
+                          self.y - (player.y + player.PH // 2))
+        return dist < self.HIT_R + max(player.PW, player.PH) // 2
+
+    def draw(self, surf, theme=None):
+        body_col = get_color("bat_body", theme)
+        wing_col = get_color("bat_wing", theme)
+
+        if not self.tracking and not self.diving:
+            # Telegraph: exclamation mark at spawn
+            cx, cy = int(self.x), max(int(20 * SY), int(self.y))
+            warn_col = get_color("warning_color", theme)
+            pulse = 0.5 + 0.5 * math.sin(self.telegraph_t * 12)
+            size = int(18 * S * pulse)
+            pygame.draw.circle(surf, warn_col, (cx, cy), max(2, size))
+            # Exclamation line
+            pygame.draw.line(surf, warn_col,
+                             (cx, cy - int(20 * S)),
+                             (cx, cy - int(8 * S)),
+                             max(1, int(3 * S)))
+            pygame.draw.circle(surf, warn_col,
+                               (cx, cy - int(4 * S)), int(2 * S))
+            return
+
+        cx, cy = int(self.x), int(self.y)
+        # Body
+        body_r = int(10 * S)
+        pygame.draw.circle(surf, body_col, (cx, cy), body_r)
+
+        # Wings (flapping)
+        wing_span = int(20 * S)
+        wing_y_off = int(math.sin(self.flap_t) * 8 * S)
+        # Left wing
+        pts_l = [(cx - int(3 * S), cy),
+                 (cx - wing_span, cy - wing_y_off),
+                 (cx - wing_span + int(5 * S), cy + int(5 * S))]
+        pygame.draw.polygon(surf, wing_col, pts_l)
+        # Right wing
+        pts_r = [(cx + int(3 * S), cy),
+                 (cx + wing_span, cy - wing_y_off),
+                 (cx + wing_span - int(5 * S), cy + int(5 * S))]
+        pygame.draw.polygon(surf, wing_col, pts_r)
+
+        # Eyes
+        pygame.draw.circle(surf, (200, 0, 0),
+                           (cx - int(3 * S), cy - int(3 * S)), int(2 * S))
+        pygame.draw.circle(surf, (200, 0, 0),
+                           (cx + int(3 * S), cy - int(3 * S)), int(2 * S))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  GroundHazard (jd-14) — L5+: column rising from ground
+# ─────────────────────────────────────────────────────────────────────────────
+class GroundHazard(Obstacle):
+    """Vertical column: 60*SX wide, 120*SY tall, rises from ground.
+
+    Phases: 0.5s telegraph -> 0.3s rise -> 1.0s active -> 0.3s retract.
+    Damage only during active phase.
+    """
+    COL_W = int(60 * SX)
+    COL_H = int(120 * SY)
+    TELEGRAPH_DUR = 0.5
+    RISE_DUR = 0.3
+    ACTIVE_DUR = 1.0
+    RETRACT_DUR = 0.3
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__()
+        self.x = float(spawn_x if spawn_x is not None else
+                        random.randint(int(80 * SX), W - int(80 * SX)))
+        self.y = float(GROUND_Y)
+        self.phase = "telegraph"  # telegraph -> rise -> active -> retract -> done
+        self.phase_t = 0.0
+        self.height_frac = 0.0  # 0 = flush with ground, 1 = fully extended
+        self.vy = 0.0  # compatibility
+
+    def update(self, dt, player):
+        self.phase_t += dt
+
+        if self.phase == "telegraph":
+            if self.phase_t >= self.TELEGRAPH_DUR:
+                self.phase = "rise"
+                self.phase_t = 0.0
+        elif self.phase == "rise":
+            self.height_frac = min(1.0, self.phase_t / self.RISE_DUR)
+            if self.phase_t >= self.RISE_DUR:
+                self.phase = "active"
+                self.phase_t = 0.0
+                self.height_frac = 1.0
+        elif self.phase == "active":
+            if self.phase_t >= self.ACTIVE_DUR:
+                self.phase = "retract"
+                self.phase_t = 0.0
+        elif self.phase == "retract":
+            self.height_frac = max(0.0, 1.0 - self.phase_t / self.RETRACT_DUR)
+            if self.phase_t >= self.RETRACT_DUR:
+                self.scored = True
+                self.alive = False
+
+    def check_hit(self, player):
+        if self.phase != "active" or player.is_hit_immune():
+            return False
+        col_rect = pygame.Rect(int(self.x) - self.COL_W // 2,
+                                int(GROUND_Y - self.COL_H),
+                                self.COL_W, self.COL_H)
+        return col_rect.colliderect(player.rect)
+
+    def draw(self, surf, theme=None):
+        warn_col = get_color("warning_color", theme)
+        cx = int(self.x)
+
+        if self.phase == "telegraph":
+            # Glowing crack line on ground
+            alpha = int(180 * (self.phase_t / self.TELEGRAPH_DUR))
+            pulse = 0.5 + 0.5 * math.sin(self.phase_t * 14)
+            crack_col = (int(warn_col[0] * pulse),
+                         int(warn_col[1] * pulse),
+                         int(warn_col[2] * pulse))
+            pygame.draw.line(surf, crack_col,
+                             (cx - self.COL_W // 2, GROUND_Y),
+                             (cx + self.COL_W // 2, GROUND_Y),
+                             max(1, int(3 * S)))
+            # Small cracks
+            for i in range(3):
+                off = int((i - 1) * 15 * SX)
+                pygame.draw.line(surf, crack_col,
+                                 (cx + off, GROUND_Y),
+                                 (cx + off + int(5 * SX),
+                                  GROUND_Y - int(10 * SY)),
+                                 max(1, int(2 * S)))
+            return
+
+        # Draw column based on height_frac
+        h = int(self.COL_H * self.height_frac)
+        if h <= 0:
+            return
+
+        col_y = GROUND_Y - h
+        # Gradient effect: darker at base, lighter at top
+        base_col = warn_col
+        top_col = (min(255, warn_col[0] + 40),
+                   min(255, warn_col[1] + 20),
+                   min(255, warn_col[2] + 20))
+
+        # Draw column
+        pygame.draw.rect(surf, base_col,
+                         (cx - self.COL_W // 2, col_y, self.COL_W, h))
+        # Lighter inner rect
+        inner_w = self.COL_W - int(8 * SX)
+        pygame.draw.rect(surf, top_col,
+                         (cx - inner_w // 2, col_y, inner_w, h))
+        # Top cap
+        pygame.draw.rect(surf, top_col,
+                         (cx - self.COL_W // 2 - int(4 * SX), col_y,
+                          self.COL_W + int(8 * SX), int(6 * SY)))
+
+
 class SplitBoulder(Boulder):
     """Boulder variant (L5+): 1.4x radius, splits into 2 normal boulders on ground."""
 

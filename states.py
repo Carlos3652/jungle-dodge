@@ -37,6 +37,7 @@ from constants import (
 from entities import (
     Player, Obstacle, Vine, Bomb, Spike, Boulder, PowerUp,
     VineSnap, BombDelay, BouncingSpike, SplitBoulder, spawn_cluster_spike,
+    CanopyDrop, CrocSnap, PoisonPuddle, ScreechBat, GroundHazard,
 )
 from particles import ParticleSystem
 from persistence import PersistenceManager
@@ -79,6 +80,12 @@ class GameContext:
     magnet_multiplier: float = 1.0
     powerup_spawn_timer: float = 0.0
     _pre_slowmo_speed_mult: float = 1.0  # saved speed_mult before slow-mo
+
+    # Special obstacle timers (jd-14)
+    croc_timer: float = 0.0
+    croc_interval: float = 0.0  # randomized each reset
+    ground_hazard_timer: float = 0.0
+    ground_hazard_interval: float = 0.0  # randomized each reset
 
     # HUD cache (lazy-init)
     hud_cache: Optional[hud.HudCache] = None
@@ -279,6 +286,11 @@ def _reset_level(ctx: GameContext) -> None:
     # jd-12: reset power-up entities and spawn timer for new level
     ctx.powerups = []
     ctx.powerup_spawn_timer = 0.0
+    # jd-14: reset special obstacle timers
+    ctx.croc_timer = 0.0
+    ctx.croc_interval = random.uniform(12.0, 18.0)
+    ctx.ground_hazard_timer = 0.0
+    ctx.ground_hazard_interval = random.uniform(12.0, 18.0)
 
 
 def _spawn_rate(level: int) -> float:
@@ -340,16 +352,54 @@ def _maybe_variant(kind, level, spawn_x, speed_mult):
 
 
 def _spawn(ctx: GameContext) -> None:
-    kind = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
+    # Build level-gated obstacle pool (jd-14)
+    types_pool = list(OBS_TYPES)
+    weights_pool = list(OBS_WEIGHTS)
+
+    if ctx.level >= 2:
+        types_pool.append("canopy_drop")
+        weights_pool.append(1)
+    if ctx.level >= 5:
+        # PoisonPuddle: max 2 on screen
+        puddle_count = sum(1 for o in ctx.obstacles
+                           if isinstance(o, PoisonPuddle) and o.alive)
+        if puddle_count < 2:
+            types_pool.append("poison_puddle")
+            weights_pool.append(1)
+    if ctx.level >= 7:
+        types_pool.append("screech_bat")
+        weights_pool.append(1)
+
+    kind = random.choices(types_pool, weights_pool)[0]
     margins = {
-        "vine":    int(50  * SX),
-        "bomb":    int(60  * SX),
-        "spike":   int(40  * SX),
-        "boulder": int(80  * SX),
+        "vine":          int(50  * SX),
+        "bomb":          int(60  * SX),
+        "spike":         int(40  * SX),
+        "boulder":       int(80  * SX),
+        "canopy_drop":   int(80  * SX),
+        "poison_puddle": int(100 * SX),
+        "screech_bat":   int(80  * SX),
     }
     sx = _spawn_x_near_player(ctx.player, margins[kind], ctx.level)
-    obs_list = _maybe_variant(kind, ctx.level, sx, ctx.speed_mult)
-    ctx.obstacles.extend(obs_list)
+
+    # New obstacle types are not routed through _maybe_variant
+    if kind == "canopy_drop":
+        obs = CanopyDrop(ctx.level, spawn_x=sx)
+        # Apply speed_mult to all leaf speeds
+        for leaf in obs.leaves:
+            leaf[2] *= ctx.speed_mult
+        ctx.obstacles.append(obs)
+    elif kind == "poison_puddle":
+        obs = PoisonPuddle(ctx.level, spawn_x=sx)
+        ctx.obstacles.append(obs)
+    elif kind == "screech_bat":
+        obs = ScreechBat(ctx.level, spawn_x=sx)
+        obs.speed *= ctx.speed_mult
+        obs.vy = obs.speed
+        ctx.obstacles.append(obs)
+    else:
+        obs_list = _maybe_variant(kind, ctx.level, sx, ctx.speed_mult)
+        ctx.obstacles.extend(obs_list)
 
 
 def _get_wave_phase_modifier(level_t: float):
@@ -606,6 +656,28 @@ class PlayState(State):
                 _spawn_dual(ctx)
             else:
                 _spawn(ctx)
+
+        # ── Special obstacle timers (jd-14) ─────────────────────────────
+        # CrocSnap: L4+, own timer
+        if ctx.level >= 4:
+            ctx.croc_timer += dt
+            if ctx.croc_timer >= ctx.croc_interval:
+                ctx.croc_timer = 0.0
+                ctx.croc_interval = random.uniform(12.0, 18.0)
+                croc = CrocSnap(ctx.level)
+                croc.speed *= ctx.speed_mult
+                croc.vy = croc.speed
+                ctx.obstacles.append(croc)
+
+        # GroundHazard: L5+, own timer
+        if ctx.level >= 5:
+            ctx.ground_hazard_timer += dt
+            if ctx.ground_hazard_timer >= ctx.ground_hazard_interval:
+                ctx.ground_hazard_timer = 0.0
+                ctx.ground_hazard_interval = random.uniform(12.0, 18.0)
+                sx = _spawn_x_near_player(ctx.player, int(80 * SX), ctx.level)
+                gh = GroundHazard(ctx.level, spawn_x=sx)
+                ctx.obstacles.append(gh)
 
         # ── Power-up spawn timer (jd-12) ──────────────────────────────────
         ctx.powerup_spawn_timer += dt
