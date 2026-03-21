@@ -308,6 +308,155 @@ THEMES: Dict[str, Dict[str, Union[str, Tuple[int, int, int]]]] = {
         # ---- Tutorial ----
         "tutorial_arrow": (38, 212, 72),
     },
+
+    "space": {
+        # ---- Identity ----
+        "name": "Space",
+        "accent_color": (0, 220, 255),        # cyan
+        "secondary_color": (255, 80, 180),    # magenta-pink
+        "warning_color": (255, 60, 60),       # red
+
+        # ---- Sky / Background ----
+        "sky_top": (2, 2, 12),
+        "sky_horizon": (8, 8, 25),
+        "parallax_mid": (5, 5, 18),
+        "parallax_near": (12, 12, 35),
+
+        # ---- Ground ----
+        "ground_base": (40, 42, 50),          # metallic grey station floor
+        "ground_edge": (55, 58, 68),
+        "grass_main": (30, 32, 45),           # panel lines
+        "grass_highlight": (50, 55, 70),
+
+        # ---- Character ----
+        "char_jacket": (160, 165, 175),       # grey suit
+        "char_hat": (80, 85, 95),             # helmet
+        "char_hat_band": (0, 220, 255),       # cyan visor
+        "char_skin": (200, 195, 185),         # barely visible behind helmet
+        "char_pants": (100, 105, 115),        # suit legs
+        "char_boots": (60, 62, 70),           # mag boots
+        "char_iframe_glow": (0, 220, 255),    # cyan flash
+        "char_hit_flash": (255, 60, 60),
+
+        # ---- Obstacles ----
+        "vine_base": (0, 200, 240),           # tether cable (cyan)
+        "vine_highlight": (0, 130, 170),
+        "bomb_body": (40, 20, 20),            # proximity mine (dark red)
+        "bomb_fuse": (255, 80, 40),           # blinking light
+        "bomb_warning": (255, 40, 40),
+        "spike_base": (200, 200, 220),        # drill shard (silver)
+        "spike_tip": (150, 150, 170),
+        "boulder_base": (100, 95, 85),        # asteroid (brown-grey)
+        "boulder_crack": (70, 65, 55),
+        "canopy_drop_base": (60, 80, 120),    # debris cloud
+        "croc_base": (80, 40, 40),            # jaw trap (dark red)
+        "croc_teeth": (220, 220, 230),        # metal teeth
+        "poison_puddle": (40, 200, 80),       # radiation pool (bright green)
+        "bat_body": (50, 50, 70),             # homing drone
+        "bat_wing": (80, 80, 110),
+
+        # ---- HUD ----
+        "hud_bg": (10, 15, 35),              # dark blue holographic panel
+        "hud_border": (0, 180, 220),          # cyan border
+        "hud_text": (220, 230, 255),          # cool white
+        "hud_style": "holographic",
+        "hud_label": (60, 80, 140),           # blue-grey
+        "hud_primary": (0, 220, 255),         # cyan
+        "hud_pb_text": (255, 220, 40),
+        "hud_pb_beating": (255, 60, 60),
+        "hud_wave_push": (255, 120, 0),
+        "hud_wave_breather": (0, 200, 160),
+        "timer_normal": (220, 230, 255),
+        "timer_warning": (255, 60, 60),
+        "streak_bronze": (205, 140, 60),
+        "streak_silver": (200, 200, 210),
+        "streak_gold": (220, 170, 40),
+        "lives_full": (0, 220, 255),          # cyan for space
+        "lives_lost": (20, 30, 50),
+        "roll_ready": (0, 200, 160),
+        "roll_charging": (40, 50, 70),
+        "powerup_shield": (0, 200, 160),
+        "powerup_slowmo": (200, 80, 255),
+        "powerup_magnet": (255, 210, 40),
+        "level_pill_bg": (10, 15, 40),
+        "boss_level_pill": (255, 60, 60),
+
+        # ---- Start screen ----
+        "title_primary": (0, 220, 255),       # cyan
+        "title_shadow": (2, 2, 12),           # sky_top
+        "selector_border": (0, 220, 255),
+        "diff_easy": (0, 220, 255),           # cyan
+        "diff_normal": (255, 210, 40),        # yellow
+        "diff_hard": (255, 60, 60),           # red
+        "diff_selected": (220, 230, 255),
+        "daily_button": (255, 120, 0),        # orange
+
+        # ---- Level-up / Boss ----
+        "new_obstacle_preview": (220, 230, 255),
+        "boss_wave_border": (255, 60, 60),
+
+        # ---- Name entry ----
+        "name_entry_active": (0, 220, 255),
+        "trophy_gold": (220, 170, 40),
+        "beat_callout": (255, 210, 40),
+
+        # ---- Leaderboard ----
+        "tab_active": (0, 220, 255),
+        "lb_player_row": (10, 15, 40),
+
+        # ---- Game over ----
+        "gameover_headline": (255, 60, 60),
+        "new_best_flash": (255, 210, 40),
+        "stat_value": (220, 230, 255),
+        "badge_bg": (10, 15, 35),
+        "flavor_text": (60, 80, 140),
+
+        # ---- Particles ----
+        "particle_trail": (0, 220, 255),
+        "particle_near_miss": (255, 200, 80),  # spark
+        "particle_roll": (0, 200, 160),
+        "particle_hit_chunk": (255, 60, 60),
+        "particle_hit_flash": (220, 230, 255),
+        "near_miss": (255, 210, 40),
+        "combo_text": (255, 210, 40),
+        "pu_shield_color": (0, 200, 160),
+        "pu_slow_color": (200, 80, 255),
+        "pu_score_color": (255, 210, 40),
+        "pu_sparkle": (220, 230, 255),
+        "streak_particle": (220, 170, 40),
+        "boss_clear_a": (0, 220, 255),
+        "boss_clear_b": (255, 80, 180),
+        "boss_clear_confetti": (255, 210, 40),
+        "boss_clear_spark": (255, 200, 80),
+        "death_core": (255, 60, 60),
+        "death_scatter": (180, 20, 60),
+        "death_ghost": (220, 230, 255),
+        "death_ghost_large": (180, 190, 220),
+        "level_up_particle": (0, 220, 255),
+        "level_up_text_color": (255, 210, 40),
+        "delight_note": (255, 200, 80),
+        "delight_crown": (220, 170, 40),
+
+        # ---- Screen effects ----
+        "flash_hit": (255, 60, 60),
+        "flash_bomb": (255, 120, 0),
+        "flash_pu": (0, 200, 160),
+        "flash_boss": (255, 80, 180),
+        "flash_death": (255, 60, 60),
+        "flash_level": (0, 220, 255),
+        "vignette_color": (0, 0, 10),
+        "vignette_danger": (80, 0, 20),
+
+        # ---- Transitions ----
+        "transition_style": "star_jump",
+        "transition_color": (2, 2, 12),
+
+        # ---- Audio ----
+        "audio_prefix": "space",
+
+        # ---- Tutorial ----
+        "tutorial_arrow": (0, 220, 255),
+    },
 }
 
 # Default theme name
