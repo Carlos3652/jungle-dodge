@@ -619,3 +619,200 @@ class PowerUp(Obstacle):
                              (cx - hw, cy - hw), max(1, int(2 * S)))
             pygame.draw.line(surf, inner_col, (cx + hw, cy + hw - int(2 * S)),
                              (cx + hw, cy - hw), max(1, int(2 * S)))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Obstacle Variants (jd-13)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class VineSnap(Vine):
+    """Vine variant (L4+): lunges sideways at a random point during fall."""
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__(level, spawn_x=spawn_x)
+        # Lunge parameters
+        self._lunge_progress = random.uniform(0.3, 0.7)  # 30-70% of travel
+        self._lunge_dist = random.uniform(120, 180) * SX
+        self._lunge_dir = random.choice([-1, 1])
+        self._lunge_dur = 0.15  # seconds
+        self._lunge_started = False
+        self._lunge_done = False
+        self._lunge_t = 0.0
+        self._total_fall = float(GROUND_Y - self.BH + self.BH)  # total distance to ground
+
+    def update(self, dt, player):
+        if not self.landed and not self._lunge_done:
+            # Check if we've reached the lunge trigger point
+            fall_frac = (self.y + self.BH) / GROUND_Y  # 0 at top, 1 at ground
+            if fall_frac >= self._lunge_progress and not self._lunge_started:
+                self._lunge_started = True
+                self._lunge_t = 0.0
+
+            if self._lunge_started and not self._lunge_done:
+                self._lunge_t += dt
+                # Fast lateral movement during lunge
+                lunge_frac = min(1.0, self._lunge_t / self._lunge_dur)
+                lateral_speed = self._lunge_dist / self._lunge_dur
+                self.x += self._lunge_dir * lateral_speed * dt
+                self.x = max(float(self.BW), min(float(W - self.BW), self.x))
+                if lunge_frac >= 1.0:
+                    self._lunge_done = True
+
+        super().update(dt, player)
+
+
+class BombDelay(Bomb):
+    """Bomb variant (L5+): 0.8s fuse delay before ground explosion."""
+
+    FUSE_DELAY = 0.8
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__(level, spawn_x=spawn_x)
+        self._delay_active = False
+        self._delay_timer = 0.0
+
+    def update(self, dt, player):
+        if self._delay_active:
+            self._delay_timer += dt
+            if self._delay_timer >= self.FUSE_DELAY:
+                # Now actually explode
+                self._delay_active = False
+                self.exploded = True
+                self.scored = True
+            return
+
+        if self.exploded:
+            self.exp_t += dt
+            if self.exp_t >= self.exp_dur:
+                self.alive = False
+            return
+
+        # Normal falling
+        self.y += self.vy * dt
+        self.fuse_t += dt * 6
+        self.spark_t += dt * 14
+
+        if self.y >= GROUND_Y - self.R:
+            self.y = float(GROUND_Y - self.R)
+            # Start delay instead of immediate explosion
+            self._delay_active = True
+            self._delay_timer = 0.0
+
+    def check_hit(self, player):
+        if player.is_hit_immune():
+            return False
+        if self._delay_active:
+            # During fuse delay, only the bomb body can hit (not explosion radius)
+            return self.rect.colliderect(player.rect)
+        return super().check_hit(player)
+
+    def draw(self, surf, theme=None):
+        if self._delay_active:
+            cx, cy = int(self.x), int(self.y)
+            # Draw warning circle on ground
+            warning_surf = pygame.Surface((self.exp_r * 2, self.exp_r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(warning_surf, (255, 0, 0, 102),  # 40% alpha
+                               (self.exp_r, self.exp_r), self.exp_r)
+            surf.blit(warning_surf, (cx - self.exp_r, cy - self.exp_r))
+            # Draw the bomb body on top
+            o4 = int(4 * S)
+            o5 = int(5 * S)
+            o6 = int(6 * S)
+            o10 = int(10 * S)
+            o2 = int(2 * S)
+            o3 = int(3 * S)
+            pygame.draw.circle(surf, get_color("bomb_body", theme), (cx, cy), self.R)
+            pygame.draw.circle(surf, (55, 55, 55), (cx - o5, cy - o5), o6)
+            fuse_top = (cx + o4, cy - self.R - o10)
+            pygame.draw.lines(surf, get_color("bomb_fuse", theme), False,
+                              [(cx, cy - self.R), (cx + o2, cy - self.R - o5), fuse_top], max(1, o2))
+            # Pulsing spark during delay
+            pulse = abs(math.sin(self._delay_timer * 12))
+            spark_r = int(o4 * (1 + pulse))
+            pygame.draw.circle(surf, (255, 100, 20), fuse_top, spark_r)
+            return
+        super().draw(surf, theme=theme)
+
+
+def spawn_cluster_spike(level, spawn_x):
+    """Factory: returns a list of 3 Spikes in triangle formation (L3+).
+
+    Center spike at spawn_x, two flanking at +/-30*S px.
+    Each spike is 80% of normal size, flanks staggered higher.
+    """
+    spikes = []
+    offsets = [0, -30 * S, 30 * S]
+    for i, x_off in enumerate(offsets):
+        s = Spike(level, spawn_x=int(spawn_x + x_off))
+        # Scale down to 80%
+        s.SW = int(18 * S * 0.8)
+        s.SH = int(44 * S * 0.8)
+        if i > 0:
+            # Flanking spikes start higher
+            s.y = float(-s.SH * 1.3)
+        spikes.append(s)
+    return spikes
+
+
+class BouncingSpike(Spike):
+    """Spike variant (L6+): bounces 60*S px upward once on ground contact."""
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__(level, spawn_x=spawn_x)
+        self._has_bounced = False
+        self._original_vy = self.vy
+        # Gravity to pull the spike back down after bounce
+        self._gravity = abs(self.vy) * 2.5  # strong enough to arc back quickly
+
+    def update(self, dt, player):
+        if self._has_bounced:
+            # Apply gravity during bounce arc
+            self.vy += self._gravity * dt
+        self.y += self.vy * dt
+        if self.y >= GROUND_Y:
+            if not self._has_bounced:
+                self._has_bounced = True
+                self.y = float(GROUND_Y)
+                # Bounce upward at 60% of original speed
+                self.vy = -abs(self._original_vy) * 0.6
+                self.scored = True
+            else:
+                # Second ground contact — die
+                self.scored = True
+                self.alive = False
+
+    def check_hit(self, player):
+        return not player.is_hit_immune() and self.rect.colliderect(player.rect)
+
+
+class SplitBoulder(Boulder):
+    """Boulder variant (L5+): 1.4x radius, splits into 2 normal boulders on ground."""
+
+    def __init__(self, level, spawn_x=None):
+        super().__init__(level, spawn_x=spawn_x)
+        self.R = int(30 * S * 1.4)
+        self._has_split = False
+        self._level = level
+
+    def update(self, dt, player):
+        if not self.rolling:
+            self.y += self.vy * dt
+            self.rot += self.vy * dt * 0.03
+            if self.y >= GROUND_Y - self.R:
+                self.y = float(GROUND_Y - self.R)
+                self._has_split = True
+                self.scored = True
+                self.alive = False
+        # SplitBoulder never rolls — it splits on ground contact
+
+    def split(self):
+        """Return 2 child Boulder objects going left and right."""
+        children = []
+        for direction in [-1, 1]:
+            child = Boulder(self._level, spawn_x=int(self.x))
+            child.y = float(GROUND_Y - child.R)
+            child.rolling = True
+            child.scored = True
+            child.roll_dir = direction
+            children.append(child)
+        return children

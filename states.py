@@ -34,7 +34,10 @@ from constants import (
     MAGNET_MULTIPLIER, MAGNET_DURATION,
     SHIELD_PARTICLES,
 )
-from entities import Player, Obstacle, Vine, Bomb, Spike, Boulder, PowerUp
+from entities import (
+    Player, Obstacle, Vine, Bomb, Spike, Boulder, PowerUp,
+    VineSnap, BombDelay, BouncingSpike, SplitBoulder, spawn_cluster_spike,
+)
 from particles import ParticleSystem
 from persistence import PersistenceManager
 import hud
@@ -292,9 +295,52 @@ def _spawn_x_near_player(player, margin, level):
     return random.randint(lo, hi)
 
 
+def _maybe_variant(kind, level, spawn_x, speed_mult):
+    """Return a list of obstacles, possibly replacing base type with a variant.
+
+    jd-13: Level-gated obstacle variants.
+    Returns a list because ClusterSpike spawns 3 separate Spike objects.
+    """
+    # Cluster Spike: L3+, 25% chance instead of Spike
+    if kind == "spike" and level >= 3 and random.random() < 0.25:
+        spikes = spawn_cluster_spike(level, spawn_x)
+        for s in spikes:
+            s.vy *= speed_mult
+        return spikes
+
+    # Bouncing Spike: L6+, 25% chance instead of Spike
+    if kind == "spike" and level >= 6 and random.random() < 0.25:
+        obs = BouncingSpike(level, spawn_x=spawn_x)
+        obs.vy *= speed_mult
+        return [obs]
+
+    # Vine Snap: L4+, 30% chance instead of Vine
+    if kind == "vine" and level >= 4 and random.random() < 0.30:
+        obs = VineSnap(level, spawn_x=spawn_x)
+        obs.vy *= speed_mult
+        return [obs]
+
+    # Bomb Delay: L5+, 25% chance instead of Bomb
+    if kind == "bomb" and level >= 5 and random.random() < 0.25:
+        obs = BombDelay(level, spawn_x=spawn_x)
+        obs.vy *= speed_mult
+        return [obs]
+
+    # Split Boulder: L5+, 20% chance instead of Boulder
+    if kind == "boulder" and level >= 5 and random.random() < 0.20:
+        obs = SplitBoulder(level, spawn_x=spawn_x)
+        obs.vy *= speed_mult
+        return [obs]
+
+    # No variant — return base type
+    cls = {"vine": Vine, "bomb": Bomb, "spike": Spike, "boulder": Boulder}[kind]
+    obs = cls(level, spawn_x=spawn_x)
+    obs.vy *= speed_mult
+    return [obs]
+
+
 def _spawn(ctx: GameContext) -> None:
     kind = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
-    cls  = {"vine": Vine, "bomb": Bomb, "spike": Spike, "boulder": Boulder}[kind]
     margins = {
         "vine":    int(50  * SX),
         "bomb":    int(60  * SX),
@@ -302,9 +348,8 @@ def _spawn(ctx: GameContext) -> None:
         "boulder": int(80  * SX),
     }
     sx = _spawn_x_near_player(ctx.player, margins[kind], ctx.level)
-    obs = cls(ctx.level, spawn_x=sx)
-    obs.vy *= ctx.speed_mult  # jd-11: difficulty speed scaling
-    ctx.obstacles.append(obs)
+    obs_list = _maybe_variant(kind, ctx.level, sx, ctx.speed_mult)
+    ctx.obstacles.extend(obs_list)
 
 
 def _get_wave_phase_modifier(level_t: float):
@@ -320,7 +365,6 @@ def _get_wave_phase_modifier(level_t: float):
 
 def _spawn_dual(ctx: GameContext) -> None:
     """Spawn two obstacles simultaneously with CRESCENDO_SEPARATION minimum gap."""
-    cls_map = {"vine": Vine, "bomb": Bomb, "spike": Spike, "boulder": Boulder}
     margins = {
         "vine":    int(50  * SX),
         "bomb":    int(60  * SX),
@@ -330,9 +374,8 @@ def _spawn_dual(ctx: GameContext) -> None:
     kind1 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
     kind2 = random.choices(OBS_TYPES, OBS_WEIGHTS)[0]
     sx1 = _spawn_x_near_player(ctx.player, margins[kind1], ctx.level)
-    obs1 = cls_map[kind1](ctx.level, spawn_x=sx1)
-    obs1.vy *= ctx.speed_mult  # jd-11: difficulty speed scaling
-    ctx.obstacles.append(obs1)
+    obs_list1 = _maybe_variant(kind1, ctx.level, sx1, ctx.speed_mult)
+    ctx.obstacles.extend(obs_list1)
     min_sep = int(W * CRESCENDO_SEPARATION)
     margin2 = margins[kind2]
     if sx1 + min_sep <= W - margin2:
@@ -344,9 +387,8 @@ def _spawn_dual(ctx: GameContext) -> None:
             sx2 = random.randint(W // 2 + margin2, W - margin2)
         else:
             sx2 = random.randint(margin2, W // 2 - margin2)
-    obs2 = cls_map[kind2](ctx.level, spawn_x=sx2)
-    obs2.vy *= ctx.speed_mult  # jd-11: difficulty speed scaling
-    ctx.obstacles.append(obs2)
+    obs_list2 = _maybe_variant(kind2, ctx.level, sx2, ctx.speed_mult)
+    ctx.obstacles.extend(obs_list2)
 
 
 def _spawn_powerup(ctx: GameContext) -> None:
@@ -651,6 +693,17 @@ class PlayState(State):
         # Update obstacles
         for obs in ctx.obstacles:
             obs.update(dt, ctx.player)
+
+        # jd-13: SplitBoulder child spawning
+        split_children = []
+        for obs in ctx.obstacles:
+            if isinstance(obs, SplitBoulder) and obs._has_split:
+                children = obs.split()
+                for child in children:
+                    child.vy *= ctx.speed_mult
+                split_children.extend(children)
+        if split_children:
+            ctx.obstacles.extend(split_children)
 
         # Scoring (CRIT-01) — streak multiplier + magnet multiplier (jd-12) applied
         for obs in ctx.obstacles:
