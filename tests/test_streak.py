@@ -72,6 +72,12 @@ if "pygame" not in sys.modules:
     _pg.K_RETURN = 13
     _pg.K_KP_ENTER = 271
     _pg.K_BACKSPACE = 8
+    _pg.K_UP = 273
+    _pg.K_DOWN = 274
+    _pg.K_1 = 49
+    _pg.K_2 = 50
+    _pg.K_3 = 51
+    _pg.quit = MagicMock()
     sys.modules["pygame"] = _pg
     sys.modules.setdefault("pygame.font", _pg.font)
     sys.modules.setdefault("pygame.display", _pg.display)

@@ -7,61 +7,77 @@ import unittest
 from unittest.mock import MagicMock
 
 # ── Stub pygame before importing game code ───────────────────────────────────
-_pg = types.ModuleType("pygame")
-_pg.init = MagicMock()
-_pg.font = types.ModuleType("pygame.font")
-_pg.font.init = MagicMock()
-_pg.font.get_init = MagicMock(return_value=True)
-_pg.font.SysFont = MagicMock(return_value=MagicMock())
-_pg.font.Font = MagicMock(return_value=MagicMock())
-_pg.display = types.ModuleType("pygame.display")
-_pg.display.set_mode = MagicMock(return_value=MagicMock())
-_pg.display.set_caption = MagicMock()
-_pg.display.flip = MagicMock()
-_pg.mouse = types.ModuleType("pygame.mouse")
-_pg.mouse.set_visible = MagicMock()
-_pg.time = types.ModuleType("pygame.time")
-_pg.time.Clock = MagicMock
-_pg.time.get_ticks = MagicMock(return_value=0)
-_pg.Surface = MagicMock
-_pg.Rect = MagicMock(side_effect=lambda x, y, w, h: type('R', (), {
-    'x': x, 'y': y, 'w': w, 'h': h,
-    'colliderect': lambda self, o: True,
-})())
-_pg.draw = types.ModuleType("pygame.draw")
-_pg.draw.rect = MagicMock()
-_pg.draw.line = MagicMock()
-_pg.draw.lines = MagicMock()
-_pg.draw.circle = MagicMock()
-_pg.draw.ellipse = MagicMock()
-_pg.draw.polygon = MagicMock()
-_pg.draw.arc = MagicMock()
-_pg.image = types.ModuleType("pygame.image")
-_pg.image.load = MagicMock(return_value=MagicMock())
-_pg.transform = types.ModuleType("pygame.transform")
-_pg.transform.scale = MagicMock(return_value=MagicMock())
-_pg.transform.rotate = MagicMock(return_value=MagicMock(get_size=MagicMock(return_value=(100, 100))))
-_pg.mixer = types.ModuleType("pygame.mixer")
-_pg.mixer.init = MagicMock()
-_pg.mixer.Sound = MagicMock
-_pg.FULLSCREEN = 0
-_pg.SCALED = 0
-_pg.SRCALPHA = 0x00010000
-_pg.KEYDOWN = 2
-_pg.QUIT = 12
-_pg.K_LEFT = 276
-_pg.K_RIGHT = 275
-_pg.K_a = 97
-_pg.K_d = 100
-_pg.K_SPACE = 32
-_pg.key = types.ModuleType("pygame.key")
-_pg.key.get_pressed = MagicMock(return_value={})
-_pg.event = types.ModuleType("pygame.event")
-_pg.event.get = MagicMock(return_value=[])
-sys.modules.setdefault("pygame", _pg)
-sys.modules.setdefault("pygame.font", _pg.font)
-sys.modules.setdefault("pygame.display", _pg.display)
-sys.modules.setdefault("pygame.mixer", _pg.mixer)
+if "pygame" not in sys.modules:
+    _pg = types.ModuleType("pygame")
+    _pg.init = MagicMock()
+    _pg.font = types.ModuleType("pygame.font")
+    _pg.font.init = MagicMock()
+    _pg.font.get_init = MagicMock(return_value=True)
+    _pg.font.SysFont = MagicMock(return_value=MagicMock())
+    _pg.font.Font = MagicMock(return_value=MagicMock())
+    _pg.display = types.ModuleType("pygame.display")
+    _pg.display.set_mode = MagicMock(return_value=MagicMock())
+    _pg.display.set_caption = MagicMock()
+    _pg.display.flip = MagicMock()
+    _pg.mouse = types.ModuleType("pygame.mouse")
+    _pg.mouse.set_visible = MagicMock()
+    _pg.time = types.ModuleType("pygame.time")
+    _pg.time.Clock = MagicMock
+    _pg.time.get_ticks = MagicMock(return_value=0)
+    _pg.Surface = MagicMock
+    _pg.Rect = MagicMock(side_effect=lambda x, y, w, h: type('R', (), {
+        'x': x, 'y': y, 'w': w, 'h': h,
+        'colliderect': lambda self, o: True,
+    })())
+    _pg.draw = types.ModuleType("pygame.draw")
+    _pg.draw.rect = MagicMock()
+    _pg.draw.line = MagicMock()
+    _pg.draw.lines = MagicMock()
+    _pg.draw.circle = MagicMock()
+    _pg.draw.ellipse = MagicMock()
+    _pg.draw.polygon = MagicMock()
+    _pg.draw.arc = MagicMock()
+    _pg.image = types.ModuleType("pygame.image")
+    _pg.image.load = MagicMock(return_value=MagicMock())
+    _pg.transform = types.ModuleType("pygame.transform")
+    _pg.transform.scale = MagicMock(return_value=MagicMock())
+    _pg.transform.rotate = MagicMock(return_value=MagicMock(
+        get_size=MagicMock(return_value=(100, 100))))
+    _pg.mixer = types.ModuleType("pygame.mixer")
+    _pg.mixer.init = MagicMock()
+    _pg.mixer.Sound = MagicMock
+    _pg.FULLSCREEN = 0
+    _pg.SCALED = 0
+    _pg.SRCALPHA = 0x00010000
+    _pg.KEYDOWN = 2
+    _pg.QUIT = 12
+    _pg.K_LEFT = 276
+    _pg.K_RIGHT = 275
+    _pg.K_UP = 273
+    _pg.K_DOWN = 274
+    _pg.K_a = 97
+    _pg.K_d = 100
+    _pg.K_SPACE = 32
+    _pg.K_ESCAPE = 27
+    _pg.K_F11 = 292
+    _pg.K_TAB = 9
+    _pg.K_RETURN = 13
+    _pg.K_KP_ENTER = 271
+    _pg.K_BACKSPACE = 8
+    _pg.K_1 = 49
+    _pg.K_2 = 50
+    _pg.K_3 = 51
+    _pg.key = types.ModuleType("pygame.key")
+    _pg.key.get_pressed = MagicMock(return_value={})
+    _pg.event = types.ModuleType("pygame.event")
+    _pg.event.get = MagicMock(return_value=[])
+    _pg.quit = MagicMock()
+    sys.modules["pygame"] = _pg
+    sys.modules["pygame.font"] = _pg.font
+    sys.modules["pygame.display"] = _pg.display
+    sys.modules["pygame.mixer"] = _pg.mixer
+
+_pg = sys.modules["pygame"]
 
 from entities import (
     Player, Vine, Bomb, Spike, Boulder,

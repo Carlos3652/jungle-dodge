@@ -40,10 +40,13 @@ if "pygame" not in sys.modules:
     _pg.draw.circle = MagicMock()
     _pg.draw.ellipse = MagicMock()
     _pg.draw.polygon = MagicMock()
+    _pg.draw.arc = MagicMock()
     _pg.image = types.ModuleType("pygame.image")
     _pg.image.load = MagicMock(return_value=MagicMock())
     _pg.transform = types.ModuleType("pygame.transform")
     _pg.transform.scale = MagicMock(return_value=MagicMock())
+    _pg.transform.rotate = MagicMock(return_value=MagicMock(
+        get_size=MagicMock(return_value=(100, 100))))
     _pg.mixer = types.ModuleType("pygame.mixer")
     _pg.mixer.init = MagicMock()
     _pg.mixer.Sound = MagicMock
@@ -65,6 +68,9 @@ if "pygame" not in sys.modules:
     _pg.K_DOWN = 274
     _pg.K_a = 97
     _pg.K_d = 100
+    _pg.K_1 = 49
+    _pg.K_2 = 50
+    _pg.K_3 = 51
     _pg.key = types.ModuleType("pygame.key")
     _pg.key.get_pressed = MagicMock(return_value={})
     _pg.event = types.ModuleType("pygame.event")
@@ -75,6 +81,8 @@ if "pygame" not in sys.modules:
     sys.modules["pygame.font"] = _pg.font
     sys.modules["pygame.display"] = _pg.display
     sys.modules["pygame.mixer"] = _pg.mixer
+
+_pg = sys.modules["pygame"]
 
 from states import State, GameStateManager, GameContext
 from persistence import PersistenceManager
