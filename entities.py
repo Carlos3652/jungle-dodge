@@ -50,14 +50,6 @@ class Player:
     def is_stunned(self):
         return self.stun_t > 0
 
-    def tick_timers(self, dt):
-        """Advance stun/immune/flash timers without processing movement."""
-        if self.stun_t > 0:
-            self.stun_t  = max(0.0, self.stun_t - dt)
-            self.flash_t += dt * 12
-        if self.immune_t > 0:
-            self.immune_t = max(0.0, self.immune_t - dt)
-
     def is_hit_immune(self):
         """True during stun AND brief grace period after (CRIT-03)."""
         return self.immune_t > 0
@@ -210,17 +202,6 @@ class Player:
 
         # ── Roll tilt transform ─────────────────────────────────────────────
         if self.rolling:
-            # Emit trail particles during roll
-            if particles is not None:
-                trail_col = (180, 220, 255)
-                for _ in range(2):
-                    px = self.x - self.roll_dir * int(15 * S) + random.uniform(-5, 5) * S
-                    py = self.y + self.PH * 0.6 + random.uniform(-5, 5) * S
-                    particles.emit(px, py, count=1,
-                                   vx=-self.roll_dir * random.uniform(20, 60) * S,
-                                   vy=random.uniform(-30, 30) * S,
-                                   size=random.uniform(3, 6) * S,
-                                   color=trail_col, lifetime=0.2)
             # Render player to a temporary surface, tilt 45°, squash Y to 0.85
             pw_full = self.PW + int(20 * S)  # extra margin for tilt
             ph_full = self.PH + int(20 * S)
@@ -838,6 +819,10 @@ class CanopyDrop(Obstacle):
         self.vy = base_vy
         self.leaf_w = int(15 * S)
         self.leaf_h = int(10 * S)
+        # Pre-allocated telegraph shadow surface (HIGH-02)
+        self._shadow_w = int(120 * SX)
+        self._shadow_h = int(16 * SY)
+        self._shadow_surf = pygame.Surface((self._shadow_w, self._shadow_h), pygame.SRCALPHA)
 
     def update(self, dt, player):
         if not self.started:
@@ -884,16 +869,14 @@ class CanopyDrop(Obstacle):
         base_col = get_color("canopy_drop_base", theme)
         warn_col = get_color("warning_color", theme)
 
-        # Telegraph: shadow on ground
+        # Telegraph: shadow on ground (reuse pre-allocated surface)
         if not self.started:
             alpha = int(80 * (self.telegraph_t / self.TELEGRAPH_DUR))
-            shadow_w = int(120 * SX)
-            shadow_h = int(16 * SY)
-            shadow_surf = pygame.Surface((shadow_w, shadow_h), pygame.SRCALPHA)
-            pygame.draw.ellipse(shadow_surf, (0, 0, 0, alpha),
-                                (0, 0, shadow_w, shadow_h))
-            surf.blit(shadow_surf, (int(self.x) - shadow_w // 2,
-                                     GROUND_Y - shadow_h // 2))
+            self._shadow_surf.fill((0, 0, 0, 0))
+            pygame.draw.ellipse(self._shadow_surf, (0, 0, 0, alpha),
+                                (0, 0, self._shadow_w, self._shadow_h))
+            surf.blit(self._shadow_surf, (int(self.x) - self._shadow_w // 2,
+                                          GROUND_Y - self._shadow_h // 2))
             return
 
         for i, leaf in enumerate(self.leaves):
@@ -1032,6 +1015,8 @@ class PoisonPuddle(Obstacle):
         self.lifetime = random.uniform(8.0, 12.0)
         self.age = 0.0
         self.vy = 0.0  # no vertical speed, for compatibility
+        # Pre-allocated puddle surface (HIGH-03)
+        self._puddle_surf = pygame.Surface((self.RADIUS * 2, self.RADIUS), pygame.SRCALPHA)
 
     def update(self, dt, player):
         if not self.active:
@@ -1087,11 +1072,11 @@ class PoisonPuddle(Obstacle):
             fade = max(0.0, (self.lifetime - self.age) / 2.0)
 
         alpha = int(100 * fade)
-        puddle_surf = pygame.Surface((self.RADIUS * 2, self.RADIUS), pygame.SRCALPHA)
-        pygame.draw.ellipse(puddle_surf,
+        self._puddle_surf.fill((0, 0, 0, 0))
+        pygame.draw.ellipse(self._puddle_surf,
                             (puddle_col[0], puddle_col[1], puddle_col[2], alpha),
                             (0, 0, self.RADIUS * 2, self.RADIUS))
-        surf.blit(puddle_surf, (cx - self.RADIUS, cy - self.RADIUS // 2))
+        surf.blit(self._puddle_surf, (cx - self.RADIUS, cy - self.RADIUS // 2))
 
         # Bubbles
         bubble_t = self.age * 3

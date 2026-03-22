@@ -47,6 +47,10 @@ import hud
 from hud import HudCache
 import themes
 
+# Pre-allocated shield bubble surface (CRIT-04: avoid per-frame SRCALPHA allocation)
+_SHIELD_BUBBLE_R = int(max(Player.PW, Player.PH) * 0.7)
+_shield_bubble_surf = None  # lazy-init on first use
+
 # Obstacle class name -> class mapping (for boss script + combo pattern spawning)
 _OBS_CLASS_MAP = {
     "Vine": Vine,
@@ -93,6 +97,7 @@ class GameContext:
     shield_active: bool = False
     magnet_multiplier: float = 1.0
     powerup_spawn_timer: float = 0.0
+    powerup_spawn_threshold: float = 0.0  # HIGH-04: stored threshold, re-rolled on spawn/level
     _pre_slowmo_speed_mult: float = 1.0  # saved speed_mult before slow-mo
 
     # Special obstacle timers (jd-14)
@@ -119,9 +124,6 @@ class GameContext:
     combo_patterns_cleared: int = 0
     combo_spawned_this_push: int = 0  # how many patterns spawned in current push phase
     _combo_push_started: bool = False  # track push phase entry
-
-    # HUD cache (lazy-init)
-    hud_cache: Optional[hud.HudCache] = None
 
     # Name entry
     name_input: str = ""
@@ -260,7 +262,6 @@ def _new_game(ctx: GameContext) -> None:
     ctx.score        = 0
     ctx.streak       = 0
     ctx.level        = 1
-    ctx.streak       = 0
     ctx.near_misses  = 0
     ctx.player       = Player()
     ctx.start_idle_t = 0.0
@@ -292,7 +293,7 @@ def _new_game(ctx: GameContext) -> None:
     ctx.combo_spawned_this_push = 0
     ctx._combo_push_started = False
     if ctx.hud_cache is None:
-        ctx.hud_cache = hud.HudCache()
+        ctx.hud_cache = hud.HudCache(theme=ctx.theme)
     _reset_level(ctx)
 
 
@@ -336,6 +337,7 @@ def _reset_level(ctx: GameContext) -> None:
     # jd-12: reset power-up entities and spawn timer for new level
     ctx.powerups = []
     ctx.powerup_spawn_timer = 0.0
+    ctx.powerup_spawn_threshold = random.uniform(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX)
     # jd-14: reset special obstacle timers
     ctx.croc_timer = 0.0
     ctx.croc_interval = random.uniform(12.0, 18.0)
@@ -700,14 +702,17 @@ def _draw_scene(ctx: GameContext) -> None:
     if ctx.player is not None:
         # Draw shield bubble around player if active
         if ctx.shield_active:
+            global _shield_bubble_surf
             shield_col = themes.get_color("powerup_shield", ctx.theme)
-            bubble_r = int(max(ctx.player.PW, ctx.player.PH) * 0.7)
-            bubble_surf = pygame.Surface((bubble_r * 2, bubble_r * 2), pygame.SRCALPHA)
-            pygame.draw.circle(bubble_surf, (*shield_col, 60),
+            bubble_r = _SHIELD_BUBBLE_R
+            if _shield_bubble_surf is None:
+                _shield_bubble_surf = pygame.Surface((bubble_r * 2, bubble_r * 2), pygame.SRCALPHA)
+            _shield_bubble_surf.fill((0, 0, 0, 0))
+            pygame.draw.circle(_shield_bubble_surf, (*shield_col, 60),
                                (bubble_r, bubble_r), bubble_r)
-            pygame.draw.circle(bubble_surf, (*shield_col, 140),
+            pygame.draw.circle(_shield_bubble_surf, (*shield_col, 140),
                                (bubble_r, bubble_r), bubble_r, max(1, int(2 * S)))
-            ctx.screen.blit(bubble_surf,
+            ctx.screen.blit(_shield_bubble_surf,
                             (ctx.player.x - bubble_r,
                              ctx.player.y + ctx.player.PH // 2 - bubble_r))
         ctx.player.draw(ctx.screen, ctx.particles, theme=ctx.theme)
@@ -791,7 +796,7 @@ class StartScreenState(State):
     def draw(self, ctx):
         t = pygame.time.get_ticks()
         if ctx.hud_cache is None:
-            ctx.hud_cache = hud.HudCache()
+            ctx.hud_cache = hud.HudCache(theme=ctx.theme)
         hud.draw_start(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard,
                        ctx.start_idle_t, t, theme=ctx.theme,
                        difficulty=ctx.difficulty, diff_idx=self.diff_idx)
@@ -939,8 +944,9 @@ class PlayState(State):
         ctx.powerup_spawn_timer += dt
         if (ctx.level_timer >= POWERUP_NO_SPAWN_T
                 and len(ctx.powerups) == 0
-                and ctx.powerup_spawn_timer >= random.uniform(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX)):
+                and ctx.powerup_spawn_timer >= ctx.powerup_spawn_threshold):
             ctx.powerup_spawn_timer = 0.0
+            ctx.powerup_spawn_threshold = random.uniform(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX)
             _spawn_powerup(ctx)
 
         # ── Power-up pickup check (jd-12) ────────────────────────────────
@@ -1102,6 +1108,7 @@ class BossIntroState(State):
     def __init__(self, boss_name: str = ""):
         self._boss_name = boss_name
         self._timer = 0.0
+        self._overlay = pygame.Surface((W, H), pygame.SRCALPHA)
 
     def enter(self, ctx):
         self._timer = 0.0
@@ -1119,16 +1126,8 @@ class BossIntroState(State):
         if self._timer >= self.DURATION:
             # Pop intro, activate boss mode in PlayState
             boss = get_boss_wave(ctx.level)
-            if boss:
-                ctx.boss_active = True
-                ctx.boss_script = list(boss["script"])
-                ctx.boss_script_idx = 0
-                ctx.boss_elapsed = 0.0
-                ctx.boss_reward = boss["reward"]
-                ctx.boss_duration = boss["duration"]
-                ctx.boss_name = boss["name"]
             _reset_level(ctx)
-            # Keep boss state through reset
+            # Set boss state after reset (reset clears it)
             if boss:
                 ctx.boss_active = True
                 ctx.boss_script = list(boss["script"])
@@ -1144,16 +1143,12 @@ class BossIntroState(State):
         if ctx.player is not None:
             _draw_scene(ctx)
 
-        # Dark overlay
-        ov = pygame.Surface((W, H), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 180))
-        ctx.screen.blit(ov, (0, 0))
+        # Dark overlay (pre-allocated)
+        self._overlay.fill((0, 0, 0, 0))
+        self._overlay.fill((0, 0, 0, 180))
+        ctx.screen.blit(self._overlay, (0, 0))
 
         # Boss wave title
-        progress = min(1.0, self._timer / self.DURATION)
-        # Scale up from 0 to full in first 0.5s
-        scale = min(1.0, self._timer / 0.5)
-
         from constants import F_HUGE, F_LARGE, F_MED
         warning_col = themes.get_color("warning_color", ctx.theme)
         gold_col = themes.get_color("streak_gold", ctx.theme)
@@ -1288,7 +1283,7 @@ class GameOverState(State):
     def draw(self, ctx):
         t = pygame.time.get_ticks()
         if ctx.hud_cache is None:
-            ctx.hud_cache = hud.HudCache()
+            ctx.hud_cache = hud.HudCache(theme=ctx.theme)
         hud.draw_gameover(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard,
                           ctx.score, ctx.level, t, theme=ctx.theme)
 
@@ -1332,7 +1327,7 @@ class NameEntryState(State):
     def draw(self, ctx):
         t = pygame.time.get_ticks()
         if ctx.hud_cache is None:
-            ctx.hud_cache = hud.HudCache()
+            ctx.hud_cache = hud.HudCache(theme=ctx.theme)
         hud.draw_name_entry(ctx.screen, ctx.hud_cache, ctx.name_input,
                             ctx.cursor_on, ctx.score, ctx.level, t, theme=ctx.theme)
 
@@ -1377,5 +1372,5 @@ class LeaderboardState(State):
     def draw(self, ctx):
         t = pygame.time.get_ticks()
         if ctx.hud_cache is None:
-            ctx.hud_cache = hud.HudCache()
+            ctx.hud_cache = hud.HudCache(theme=ctx.theme)
         hud.draw_leaderboard(ctx.screen, ctx.bg, ctx.hud_cache, ctx.leaderboard, t, theme=ctx.theme)
