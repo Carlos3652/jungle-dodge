@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "theme": "jungle",
+  "difficulty": "normal",
+  "volume_music": 0.7,
+  "volume_sfx": 1.0,
+  "volume_master": 1.0,
+  "muted": false,
+  "death_count": 0,
+  "first_run": true,
+  "show_tutorial": true,
+  "fullscreen": true
+}

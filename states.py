@@ -42,16 +42,21 @@ from entities import (
 from particles import ParticleSystem
 from persistence import PersistenceManager
 from boss_data import get_boss_wave, is_boss_level
+from combo_patterns import COMBO_PATTERNS, COMBO_CLEAR_BONUS
 import hud
 from hud import HudCache
 import themes
 
-# Obstacle class name -> class mapping (for boss script spawning)
+# Obstacle class name -> class mapping (for boss script + combo pattern spawning)
 _OBS_CLASS_MAP = {
     "Vine": Vine,
     "Bomb": Bomb,
     "Spike": Spike,
     "Boulder": Boulder,
+    "VineSnap": VineSnap,
+    "CanopyDrop": CanopyDrop,
+    "CrocSnap": CrocSnap,
+    "ClusterSpike": "cluster",  # special handling via spawn_cluster_spike()
 }
 
 
@@ -104,6 +109,16 @@ class GameContext:
     boss_reward: int = 0
     boss_duration: float = 0.0
     boss_name: str = ""
+
+    # Combo pattern state (jd-16)
+    combo_active: bool = False
+    combo_pattern: Optional[dict] = None
+    combo_obstacles: List = field(default_factory=list)
+    combo_spawn_idx: int = 0
+    combo_elapsed: float = 0.0
+    combo_patterns_cleared: int = 0
+    combo_spawned_this_push: int = 0  # how many patterns spawned in current push phase
+    _combo_push_started: bool = False  # track push phase entry
 
     # HUD cache (lazy-init)
     hud_cache: Optional[hud.HudCache] = None
@@ -267,6 +282,15 @@ def _new_game(ctx: GameContext) -> None:
     ctx.boss_reward = 0
     ctx.boss_duration = 0.0
     ctx.boss_name = ""
+    # jd-16: reset combo state
+    ctx.combo_active = False
+    ctx.combo_pattern = None
+    ctx.combo_obstacles = []
+    ctx.combo_spawn_idx = 0
+    ctx.combo_elapsed = 0.0
+    ctx.combo_patterns_cleared = 0
+    ctx.combo_spawned_this_push = 0
+    ctx._combo_push_started = False
     if ctx.hud_cache is None:
         ctx.hud_cache = hud.HudCache()
     _reset_level(ctx)
@@ -325,6 +349,14 @@ def _reset_level(ctx: GameContext) -> None:
     ctx.boss_reward = 0
     ctx.boss_duration = 0.0
     ctx.boss_name = ""
+    # jd-16: reset combo state for new level
+    ctx.combo_active = False
+    ctx.combo_pattern = None
+    ctx.combo_obstacles = []
+    ctx.combo_spawn_idx = 0
+    ctx.combo_elapsed = 0.0
+    ctx.combo_spawned_this_push = 0
+    ctx._combo_push_started = False
 
 
 def _spawn_rate(level: int) -> float:
@@ -467,6 +499,116 @@ def _spawn_boss_obstacle(ctx: GameContext, cls_name: str, x_pct: float) -> None:
     obs = cls(ctx.level, spawn_x=spawn_x)
     obs.vy *= ctx.speed_mult
     ctx.obstacles.append(obs)
+
+
+def _spawn_combo_obstacle(ctx: GameContext, cls_name: str, x_pct) -> list:
+    """Spawn a single obstacle from a combo pattern entry.
+
+    Returns list of spawned obstacles (for tracking in combo_obstacles).
+    x_pct can be None (class picks own position) or 0.0-1.0.
+    """
+    margin = int(40 * SX)
+
+    if cls_name == "ClusterSpike":
+        spawn_x = int((x_pct or 0.5) * W)
+        spawn_x = max(int(80 * SX), min(W - int(80 * SX), spawn_x))
+        spikes = spawn_cluster_spike(ctx.level, spawn_x)
+        for s in spikes:
+            s.vy *= ctx.speed_mult
+        ctx.obstacles.extend(spikes)
+        return list(spikes)
+
+    if cls_name == "CrocSnap":
+        croc = CrocSnap(ctx.level)
+        croc.speed *= ctx.speed_mult
+        croc.vy = croc.speed
+        ctx.obstacles.append(croc)
+        return [croc]
+
+    if cls_name == "CanopyDrop":
+        spawn_x = int((x_pct or 0.5) * W)
+        spawn_x = max(margin, min(W - margin, spawn_x))
+        obs = CanopyDrop(ctx.level, spawn_x=spawn_x)
+        for leaf in obs.leaves:
+            leaf[2] *= ctx.speed_mult
+        ctx.obstacles.append(obs)
+        return [obs]
+
+    cls = _OBS_CLASS_MAP.get(cls_name)
+    if cls is None or cls == "cluster":
+        return []
+    if x_pct is not None:
+        spawn_x = int(x_pct * W)
+        spawn_x = max(margin, min(W - margin, spawn_x))
+    else:
+        spawn_x = random.randint(margin, W - margin)
+    obs = cls(ctx.level, spawn_x=spawn_x)
+    obs.vy *= ctx.speed_mult
+    ctx.obstacles.append(obs)
+    return [obs]
+
+
+def _start_combo(ctx: GameContext) -> bool:
+    """Pick a random eligible combo pattern and start it.
+
+    Returns True if a combo was started, False if none eligible.
+    """
+    eligible = [
+        (key, pat) for key, pat in COMBO_PATTERNS.items()
+        if pat["min_level"] <= ctx.level
+    ]
+    if not eligible:
+        return False
+    key, pattern = random.choice(eligible)
+    ctx.combo_active = True
+    ctx.combo_pattern = pattern
+    ctx.combo_obstacles = []
+    ctx.combo_spawn_idx = 0
+    ctx.combo_elapsed = 0.0
+    return True
+
+
+def _update_combo(ctx: GameContext, dt: float) -> None:
+    """Advance combo pattern spawning and check for completion."""
+    if not ctx.combo_active or ctx.combo_pattern is None:
+        return
+
+    ctx.combo_elapsed += dt
+    spawns = ctx.combo_pattern["spawns"]
+
+    # Spawn obstacles per script timing
+    while ctx.combo_spawn_idx < len(spawns):
+        delay, cls_name, x_pct = spawns[ctx.combo_spawn_idx]
+        if ctx.combo_elapsed >= delay:
+            new_obs = _spawn_combo_obstacle(ctx, cls_name, x_pct)
+            ctx.combo_obstacles.extend(new_obs)
+            ctx.combo_spawn_idx += 1
+        else:
+            break
+
+    # Check completion: all spawned AND all combo obstacles resolved
+    if ctx.combo_spawn_idx >= len(spawns) and ctx.combo_obstacles:
+        all_resolved = all(
+            not obs.alive or obs.scored or obs.did_hit
+            for obs in ctx.combo_obstacles
+        )
+        if all_resolved:
+            any_hit = any(obs.did_hit for obs in ctx.combo_obstacles)
+            if not any_hit:
+                # Pattern clear bonus!
+                bonus = ctx.combo_pattern.get("clear_bonus", COMBO_CLEAR_BONUS)
+                ctx.score += bonus
+                ctx.combo_patterns_cleared += 1
+                ctx.particles.pop_text(
+                    W // 2, H // 2 - int(60 * S),
+                    f"PATTERN CLEAR! +{bonus}",
+                    themes.get_color("streak_gold", ctx.theme))
+            # Reset combo state
+            ctx.combo_active = False
+            ctx.combo_pattern = None
+            ctx.combo_obstacles = []
+            ctx.combo_spawn_idx = 0
+            ctx.combo_elapsed = 0.0
 
 
 def _get_wave_phase_modifier(level_t: float):
@@ -775,6 +917,23 @@ class PlayState(State):
                     sx = _spawn_x_near_player(ctx.player, int(80 * SX), ctx.level)
                     gh = GroundHazard(ctx.level, spawn_x=sx)
                     ctx.obstacles.append(gh)
+
+            # ── Combo pattern trigger (jd-16) ────────────────────────────
+            if wave_phase == "push":
+                if not ctx._combo_push_started:
+                    ctx._combo_push_started = True
+                    ctx.combo_spawned_this_push = 0
+                max_combos = 2 if ctx.level >= 8 else 1
+                if (ctx.level >= 4
+                        and not ctx.combo_active
+                        and ctx.combo_spawned_this_push < max_combos):
+                    if _start_combo(ctx):
+                        ctx.combo_spawned_this_push += 1
+            else:
+                ctx._combo_push_started = False
+
+            # Update active combo pattern
+            _update_combo(ctx, dt)
 
         # ── Power-up spawn timer (jd-12) ──────────────────────────────────
         ctx.powerup_spawn_timer += dt
