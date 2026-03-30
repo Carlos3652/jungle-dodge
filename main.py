@@ -50,4 +50,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback, os, datetime
+        log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash.log")
+        with open(log, "a") as f:
+            f.write(f"\n--- {datetime.datetime.now()} ---\n")
+            traceback.print_exc(file=f)
